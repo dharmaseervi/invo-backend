@@ -1,0 +1,4 @@
+ALTER TABLE items
+    DROP COLUMN IF EXISTS category,
+    ADD COLUMN category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+    ADD COLUMN unit VARCHAR(50);
