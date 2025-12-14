@@ -6,6 +6,7 @@ import (
 	"invo-server/internal/routes"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -49,11 +50,16 @@ func main() {
 	routes.RegisterRoutes(r, db, cfg)
 
 	// Start server
-	serverAddr := cfg.Server.Host + ":" + cfg.Server.Port
-	log.Printf("🚀 Server running on %s", serverAddr)
+	port := cfg.Server.Port
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		port = envPort
+	}
+
+	addr := "0.0.0.0:" + port
+	log.Printf("🚀 Server running on %s", addr)
 
 	srv := &http.Server{
-		Addr:         serverAddr,
+		Addr:         addr,
 		Handler:      r,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
