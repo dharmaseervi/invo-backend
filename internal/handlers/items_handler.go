@@ -155,3 +155,46 @@ func (h *itemHandler) GetItems(c *gin.Context) {
 		"items": items,
 	})
 }
+
+func (h *itemHandler) GetItemByID(c *gin.Context) {
+	itemID := c.Param("id")
+	userID := c.GetInt("user_id")
+
+	var item models.Item
+
+	err := h.db.DB.QueryRow(`
+		SELECT 
+			id, name, category_id, sku, unit, description,
+			cost_price, price, quantity, low_stock_alert, tax_rate,
+			company_id, user_id, created_at, updated_at
+		FROM items
+		WHERE id = $1 AND user_id = $2
+	`, itemID, userID).Scan(
+		&item.ID,
+		&item.Name,
+		&item.CategoryID,
+		&item.SKU,
+		&item.Unit,
+		&item.Description,
+		&item.CostPrice,
+		&item.Price,
+		&item.Quantity,
+		&item.LowStockAlert,
+		&item.TaxRate,
+		&item.CompanyID,
+		&item.UserID,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Item not found",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"item": item,
+	})
+}
