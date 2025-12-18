@@ -157,7 +157,7 @@ func (h *itemHandler) GetItems(c *gin.Context) {
 }
 
 func (h *itemHandler) GetItemByID(c *gin.Context) {
-	itemID := c.Param("id")
+	itemID := c.Param("itemId")
 	userID := c.GetInt("user_id")
 
 	var item models.Item
@@ -195,6 +195,7 @@ func (h *itemHandler) GetItemByID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"item": item,
+		"items": []models.Item{item},
 	})
+
 }
