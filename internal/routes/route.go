@@ -45,6 +45,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/companies/:id/clients", clientHandler.GetClients)
 		protected.POST("/items", itemHandler.CreateItem)
 		protected.GET("/items/:companyId/all", itemHandler.GetItems)
+		protected.GET("/item/:itemId/one", itemHandler.GetItemByID)
 		protected.POST("/categories", categoryHandler.CreateCategory)
 		protected.GET("/categories/:companyId", categoryHandler.GetCategories)
 
