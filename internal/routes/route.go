@@ -19,6 +19,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	itemHandler := handlers.NewItemHandler(db)
 	categoryHandler := handlers.NewCategoryHandler(db)
 	invoiceHandler := handlers.NewInvoiceHandler(db)
+	expenseHandler := handlers.NewExpenseHandler(db) // ← Add this line
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -39,19 +40,36 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/refresh-token", authHandler.RefreshToken)
 		protected.POST("/logout", authHandler.Logout)
 		protected.GET("/profile", userHandler.GetUserProfile)
+
+		// Company routes
 		protected.POST("/companies", companyHandler.CreateCompany)
 		protected.GET("/companies", companyHandler.GetMyCompanies)
+
+		// Client routes
 		protected.POST("/clients", clientHandler.CreateClient)
 		protected.GET("/companies/:id/clients", clientHandler.GetClients)
+
+		// Item routes
 		protected.POST("/items", itemHandler.CreateItem)
 		protected.GET("/items/:companyId/all", itemHandler.GetItems)
 		protected.GET("/item/:itemId/one", itemHandler.GetItemByID)
+
+		// Category routes
 		protected.POST("/categories", categoryHandler.CreateCategory)
 		protected.GET("/categories/:companyId", categoryHandler.GetCategories)
 
+		// Invoice routes
 		protected.POST("/invoices", invoiceHandler.CreateInvoice)
 		protected.GET("/invoices", invoiceHandler.GetInvoices)
 		protected.GET("/invoices/:id", invoiceHandler.GetInvoiceByID)
 
+		// Expense routes ← Add these lines
+		protected.POST("/expenses", expenseHandler.CreateExpense)
+		protected.GET("/expenses/:id", expenseHandler.GetExpenseByID)
+		protected.PUT("/expenses/:id", expenseHandler.UpdateExpense)
+		protected.DELETE("/expenses/:id", expenseHandler.DeleteExpense)
+		protected.GET("/companies/:id/expenses", expenseHandler.GetExpenses)
+		protected.GET("/companies/:id/expenses/range", expenseHandler.GetExpensesByDateRange)
+		protected.GET("/companies/:id/expenses/stats", expenseHandler.GetExpenseStats)
 	}
 }
