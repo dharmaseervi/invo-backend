@@ -35,11 +35,6 @@ func (h *expenseHandler) CreateExpense(c *gin.Context) {
 		return
 	}
 
-	if request.CompanyID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Company ID is required"})
-		return
-	}
-
 	if request.Amount < 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Amount must be greater than or equal to 0"})
 		return
@@ -87,7 +82,7 @@ func (h *expenseHandler) CreateExpense(c *gin.Context) {
 // GET /api/v1/companies/:id/expenses
 func (h *expenseHandler) GetExpenses(c *gin.Context) {
 	userID := c.GetInt("user_id")
-	companyID := c.Param("id")
+	companyID := c.Param("companyId")
 
 	// Check if this company belongs to this user
 	var exists bool
@@ -206,50 +201,47 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 		return
 	}
 
-	// Validate amount if provided
-	if request.Amount < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Amount must be greater than or equal to 0"})
-		return
-	}
-
-	// Get current expense and verify ownership
+	// Get expense company
 	var companyID int
 	err := h.db.DB.QueryRow(`
-        SELECT company_id FROM expensess WHERE id=$1
-    `, expenseID).Scan(&companyID)
+		SELECT company_id FROM expensess WHERE id=$1
+	`, expenseID).Scan(&companyID)
 
 	if err != nil {
 		c.JSON(404, gin.H{"error": "Expense not found"})
 		return
 	}
 
-	// Verify company belongs to user
+	// Verify ownership
 	var exists bool
 	h.db.DB.QueryRow(`
-        SELECT EXISTS(
-            SELECT 1 FROM companies 
-            WHERE id=$1 AND user_id=$2
-        )
-    `, companyID, userID).Scan(&exists)
+		SELECT EXISTS(
+			SELECT 1 FROM companies WHERE id=$1 AND user_id=$2
+		)
+	`, companyID, userID).Scan(&exists)
 
 	if !exists {
 		c.JSON(403, gin.H{"error": "Unauthorized access"})
 		return
 	}
 
-	// Update the expense
-	updateQuery := `
-        UPDATE expensess
-        SET name = COALESCE(NULLIF($1, ''), name),
-            amount = CASE WHEN $2 > 0 THEN $2 ELSE amount END,
-            description = COALESCE(NULLIF($3, ''), description),
-            date = COALESCE(NULLIF($4, ''), date),
-            updated_at = NOW()
-        WHERE id=$5
-    `
+	// Validate amount
+	if request.Amount < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Amount must be >= 0"})
+		return
+	}
 
-	_, err = h.db.DB.Exec(
-		updateQuery,
+	// Update safely
+	_, err = h.db.DB.Exec(`
+		UPDATE expensess
+		SET
+			name = COALESCE($1, name),
+			amount = COALESCE($2, amount),
+			description = COALESCE($3, description),
+			date = COALESCE($4, date),
+			updated_at = NOW()
+		WHERE id = $5
+	`,
 		request.Name,
 		request.Amount,
 		request.Description,
@@ -259,7 +251,7 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 
 	if err != nil {
 		fmt.Println("SQL ERROR:", err)
-		c.JSON(500, gin.H{"error": "Failed to update expense", "detail": err.Error()})
+		c.JSON(500, gin.H{"error": "Failed to update expense"})
 		return
 	}
 

@@ -20,6 +20,9 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	categoryHandler := handlers.NewCategoryHandler(db)
 	invoiceHandler := handlers.NewInvoiceHandler(db)
 	expenseHandler := handlers.NewExpenseHandler(db) // ← Add this line
+	clientAddressHandler := handlers.NewClientAddressHandler(db)
+	companyAddressHandler := handlers.NewCompanyAddressHandler(db)
+	invoicePDFHandler := handlers.NewInvoicePDFHandler(db)
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -44,10 +47,14 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// Company routes
 		protected.POST("/companies", companyHandler.CreateCompany)
 		protected.GET("/companies", companyHandler.GetMyCompanies)
+		protected.GET("/companies/:companyId/address", companyAddressHandler.GetCompanyAddress)
+		protected.POST("/companies/:companyId/address", companyAddressHandler.SaveCompanyAddress)
 
 		// Client routes
 		protected.POST("/clients", clientHandler.CreateClient)
-		protected.GET("/companies/:id/clients", clientHandler.GetClients)
+		protected.GET("/companies/:companyId/clients", clientHandler.GetClients)
+		protected.GET("/clients/:clientId/address", clientAddressHandler.GetClientAddress)
+		protected.POST("/clients/:clientId/address", clientAddressHandler.SaveClientAddress)
 
 		// Item routes
 		protected.POST("/items", itemHandler.CreateItem)
@@ -62,14 +69,18 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/invoices", invoiceHandler.CreateInvoice)
 		protected.GET("/invoices", invoiceHandler.GetInvoices)
 		protected.GET("/invoices/:id", invoiceHandler.GetInvoiceByID)
+		protected.GET("/invoices/number-preview", invoiceHandler.GetInvoiceNumberPreview)
 
 		// Expense routes ← Add these lines
 		protected.POST("/expenses", expenseHandler.CreateExpense)
 		protected.GET("/expenses/:id", expenseHandler.GetExpenseByID)
 		protected.PUT("/expenses/:id", expenseHandler.UpdateExpense)
 		protected.DELETE("/expenses/:id", expenseHandler.DeleteExpense)
-		protected.GET("/companies/:id/expenses", expenseHandler.GetExpenses)
-		protected.GET("/companies/:id/expenses/range", expenseHandler.GetExpensesByDateRange)
-		protected.GET("/companies/:id/expenses/stats", expenseHandler.GetExpenseStats)
+		protected.GET("/companies/:companyId/expenses", expenseHandler.GetExpenses)
+		// protected.GET("/companies/:id/expenses/range", expenseHandler.GetExpensesByDateRange)
+		// protected.GET("/companies/:id/expenses/stats", expenseHandler.GetExpenseStats)
+
+		protected.POST("/invoices/:id/generate-pdf", invoicePDFHandler.GenerateInvoicePDF)
+
 	}
 }
