@@ -63,7 +63,7 @@ func (h *clientHandler) CreateClient(c *gin.Context) {
 // GET /api/v1/companies/:id/clients
 func (h *clientHandler) GetClients(c *gin.Context) {
 	userID := c.GetInt("user_id")
-	companyID := c.Param("id")
+	companyID := c.Param("companyId")
 
 	// 1️⃣ Check if this company belongs to this user
 	var exists bool
