@@ -1,11 +1,14 @@
+//
+// handlers/invoice_pdf_handler.go
+// Refactored to return binary PDF directly
+//
+
 package handlers
 
 import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 
 	database "invo-server/internal/db"
@@ -23,8 +26,11 @@ func NewInvoicePDFHandler(db *database.Database) *InvoicePDFHandler {
 	return &InvoicePDFHandler{db: db}
 }
 
-// POST /api/v1/invoices/:id/generate-pdf
-func (h *InvoicePDFHandler) GenerateInvoicePDF(c *gin.Context) {
+// ============================================
+// GET /api/v1/invoices/:id/pdf
+// Return PDF as binary data (no disk storage)
+// ============================================
+func (h *InvoicePDFHandler) GetInvoicePDF(c *gin.Context) {
 	invoiceID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid invoice id"})
@@ -33,7 +39,9 @@ func (h *InvoicePDFHandler) GenerateInvoicePDF(c *gin.Context) {
 
 	userID := c.GetInt("user_id")
 
-	// 🔐 Authorization
+	log.Printf("📄 Generating PDF for Invoice ID: %d, User ID: %d", invoiceID, userID)
+
+	// 🔐 Authorization - verify user owns this invoice
 	var authorized bool
 	err = h.db.DB.QueryRow(`
 		SELECT EXISTS (
@@ -45,54 +53,40 @@ func (h *InvoicePDFHandler) GenerateInvoicePDF(c *gin.Context) {
 	`, invoiceID, userID).Scan(&authorized)
 
 	if err != nil || !authorized {
+		log.Printf("❌ Unauthorized access to invoice %d", invoiceID)
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
 		return
 	}
 
-	// 📄 Fetch data
+	// 📊 Fetch invoice data
 	pdfData, err := services.FetchInvoicePDFData(h.db.DB, invoiceID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("❌ Failed to fetch invoice data: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch invoice data"})
 		return
 	}
 
-	// 📁 Paths
-	fileName := fmt.Sprintf("%s.pdf", pdfData.Invoice.InvoiceNumber)
-	fsPath := filepath.Join("storage", "invoices", fileName)
-	publicURL := fmt.Sprintf(
-		"%s/storage/invoices/%s",
-		os.Getenv("BASE_URL"), // e.g. http://localhost:8080
-		fileName,
-	)
-
-	// 📄 Generate PDF
-	err = pdf.GenerateInvoicePDF(
-		"internal/pdf/templates/invoice.html",
-		pdfData,
-		fsPath,
-	)
+	// 📄 Generate PDF in memory
+	pdfBytes, err := pdf.GenerateInvoicePDFBinary(pdfData)
 	if err != nil {
-		log.Printf("PDF ERROR: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("❌ PDF generation failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate PDF"})
 		return
 	}
 
-	// 💾 Persist public URL
-	_, err = h.db.DB.Exec(`
-		UPDATE invoices
-		SET pdf_url = $1,
-		    pdf_generated_at = NOW()
-		WHERE id = $2
-	`, publicURL, invoiceID)
+	fileName := fmt.Sprintf("Invoice_%s.pdf", pdfData.Invoice.InvoiceNumber)
 
-	if err != nil {
-		log.Printf("DB ERROR: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invoice"})
-		return
-	}
+	// 📤 Return PDF as binary data
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", fileName))
+	c.Header("Content-Length", fmt.Sprintf("%d", len(pdfBytes)))
 
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Invoice PDF generated successfully",
-		"pdf_url": publicURL,
-	})
+	// Optional: Cache headers
+	c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Header("Pragma", "no-cache")
+
+	log.Printf("✅ PDF generated successfully: %s (%d bytes)", fileName, len(pdfBytes))
+
+	// Send binary data directly
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
