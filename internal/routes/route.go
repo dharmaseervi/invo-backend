@@ -80,7 +80,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// protected.GET("/companies/:id/expenses/range", expenseHandler.GetExpensesByDateRange)
 		// protected.GET("/companies/:id/expenses/stats", expenseHandler.GetExpenseStats)
 
-		protected.GET("/invoices/:id/generate-pdf", invoicePDFHandler.GetInvoicePDF)
+		protected.GET("/invoices/:id/pdf", invoicePDFHandler.GetInvoicePDF)
 
 	}
 }
