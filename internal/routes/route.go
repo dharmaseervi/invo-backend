@@ -5,6 +5,7 @@ import (
 	database "invo-server/internal/db"
 	"invo-server/internal/handlers"
 	"invo-server/internal/middleware"
+	"invo-server/internal/services"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,6 +24,16 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	clientAddressHandler := handlers.NewClientAddressHandler(db)
 	companyAddressHandler := handlers.NewCompanyAddressHandler(db)
 	invoicePDFHandler := handlers.NewInvoicePDFHandler(db)
+	dashboard := handlers.NewDashboardHandler(db)
+	companyBankHandlerss := handlers.NewCompanyBankHandler(db.DB)
+
+	ledgerService := services.NewLedgerService(db.DB)
+	ledgerHandler := handlers.NewLedgerHandler(ledgerService)
+	creditNoteService := services.NewCreditNoteService(db.DB, ledgerService)
+
+	paymentService := services.NewPaymentService(db.DB, ledgerService)
+	paymentHandler := handlers.NewPaymentHandler(db, paymentService)
+	creditNoteHandler := handlers.NewCreditNoteHandler(creditNoteService, db.DB) // ← Add this line
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -55,6 +66,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/companies/:companyId/clients", clientHandler.GetClients)
 		protected.GET("/clients/:clientId/address", clientAddressHandler.GetClientAddress)
 		protected.POST("/clients/:clientId/address", clientAddressHandler.SaveClientAddress)
+		// invoices by client
+		protected.GET("/clients/:clientId/invoices", invoiceHandler.GetInvoicesByClientID)
 
 		// Item routes
 		protected.POST("/items", itemHandler.CreateItem)
@@ -70,6 +83,9 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/invoices", invoiceHandler.GetInvoices)
 		protected.GET("/invoices/:id", invoiceHandler.GetInvoiceByID)
 		protected.GET("/invoices/number-preview", invoiceHandler.GetInvoiceNumberPreview)
+		protected.GET("/clients/:clientId/unpaid-invoices", invoiceHandler.GetUnpaidInvoices)
+		protected.POST("/invoices/:id/issue", invoiceHandler.IssueInvoice)
+		protected.PUT("/invoices/:id/update", invoiceHandler.UpdateInvoice) // 👈 REQUIRED
 
 		// Expense routes ← Add these lines
 		protected.POST("/expenses", expenseHandler.CreateExpense)
@@ -82,5 +98,22 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 
 		protected.GET("/invoices/:id/pdf", invoicePDFHandler.GetInvoicePDF)
 
+		// Ledger routes
+		protected.GET("/ledger/:clientId", ledgerHandler.GetClientLedger)
+		protected.GET("/companies/:companyId/ledger", ledgerHandler.GetCompanyLedger)
+
+		protected.POST("/payments", paymentHandler.RecordPayment)
+
+		// credit note routes
+		protected.POST("/credit-notes", creditNoteHandler.Create)
+		protected.GET("/credit-notes", creditNoteHandler.GetAll)
+		protected.GET("/credit-notes/:id", creditNoteHandler.GetByID)
+
+		// Dashboard routes
+		protected.GET("/dashboard", dashboard.GetDashboard)
+
+		protected.GET("/companies/:companyId/banks", companyBankHandlerss.List)
+		protected.POST("/companies/:companyId/banks", companyBankHandlerss.Create)
+		protected.PUT("/companies/:companyId/banks/:bankId", companyBankHandlerss.Update)
 	}
 }
