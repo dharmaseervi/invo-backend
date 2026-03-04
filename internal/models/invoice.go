@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 type InvoiceItemRequest struct {
 	ItemID   int     `json:"item_id"`
 	Qty      int     `json:"qty"`
@@ -30,4 +32,21 @@ type Invoice struct {
 	PaidAmount      float64 `json:"paid_amount"`
 	RemainingAmount float64 `json:"remaining_amount"`
 	CreatedAt       string  `json:"created_at"`
+}
+
+type InvoiceSummary struct {
+	ID              int64     `json:"id"`
+	InvoiceNumber   string    `json:"invoice_number"`
+	Total           float64   `json:"total"`
+	PaidAmount      float64   `json:"paid_amount"`
+	RemainingAmount float64   `json:"remaining_amount"`
+	InvoiceDate     time.Time `json:"invoice_date"`
+	Status          string    `json:"status"` // draft, sent, unpaid, partial, paid, overdue, cancelled
+}
+
+type UpdateInvoiceRequestDTO struct {
+	ClientID    int                  `json:"client_id"`
+	InvoiceDate string               `json:"invoice_date"`
+	DueDate     string               `json:"due_date"`
+	Items       []InvoiceItemRequest `json:"items"`
 }

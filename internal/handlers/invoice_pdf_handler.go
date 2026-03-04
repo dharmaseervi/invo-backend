@@ -36,6 +36,7 @@ func (h *InvoicePDFHandler) GetInvoicePDF(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid invoice id"})
 		return
 	}
+	copyType := c.DefaultQuery("copy", "original")
 
 	userID := c.GetInt("user_id")
 
@@ -67,7 +68,8 @@ func (h *InvoicePDFHandler) GetInvoicePDF(c *gin.Context) {
 	}
 
 	// 📄 Generate PDF in memory
-	pdfBytes, err := pdf.GenerateInvoicePDFBinary(pdfData)
+	pdfBytes, err := pdf.GenerateTallyInvoicePDF(pdfData, copyType)
+
 	if err != nil {
 		log.Printf("❌ PDF generation failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate PDF"})

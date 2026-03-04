@@ -141,5 +141,33 @@ func FetchInvoicePDFData(
 		data.Items = append(data.Items, item)
 	}
 
+	/* -----------------------------
+	   5️⃣ Fetch Default Bank Details
+	------------------------------ */
+	err = db.QueryRow(`
+        SELECT 
+            bank_name, 
+            account_number, 
+            ifsc_code, 
+            COALESCE(branch, '')
+        FROM company_bank_accounts
+        WHERE company_id = (
+            SELECT company_id FROM invoices WHERE id = $1
+        )
+        AND is_default = true
+        LIMIT 1
+    `, invoiceID).Scan(
+		&data.Bank.BankName,
+		&data.Bank.AccountNumber,
+		&data.Bank.IFSCCode,
+		&data.Bank.Branch,
+	)
+
+	// Optional: If no default bank is found, we can either return an error
+	// or just leave it blank. Here we handle the "No Row" case gracefully.
+	if err != nil && err != sql.ErrNoRows {
+		return data, fmt.Errorf("fetch bank details: %w", err)
+	}
+
 	return data, nil
 }

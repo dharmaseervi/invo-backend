@@ -7,10 +7,13 @@ type InvoicePDFData struct {
 	ClientShipping *Address
 	Invoice        Invoice
 	Items          []InvoiceItem
+	Bank           CompanyBankDetails
 }
 
 type Company struct {
-	Name string
+	Name  string
+	Email string
+	Phone string
 }
 
 type Address struct {
@@ -19,6 +22,7 @@ type Address struct {
 	City    string
 	State   string
 	Country string
+	Zip     string
 }
 
 type Invoice struct {
@@ -29,6 +33,14 @@ type Invoice struct {
 	Tax           float64
 	Total         float64
 	Notes         string
+	PaymentInfo   string
+	PONumber      string
+	Number        string
+	Terms         string
+	AmountPaid    float64
+	AmountDue     float64
+	TaxRate       float64
+	Discount      float64
 }
 
 type InvoiceItem struct {
@@ -36,4 +48,11 @@ type InvoiceItem struct {
 	Qty   int
 	Rate  float64
 	Total float64
+}
+
+type CompanyBankDetails struct {
+	BankName      string
+	AccountNumber string
+	IFSCCode      string
+	Branch        string
 }
