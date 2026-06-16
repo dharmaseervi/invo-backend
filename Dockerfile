@@ -19,6 +19,7 @@ WORKDIR /root/
 COPY --from=builder /app/main .
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/static ./static
+COPY --from=builder /app/public ./public
 
 EXPOSE 8080
 CMD ["./main"]
