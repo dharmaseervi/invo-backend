@@ -47,7 +47,9 @@ func main() {
 	})
 
 	// Landing page
-	r.StaticFile("/", "./static/index.html")
+	r.GET("/", func(c *gin.Context) {
+		c.File("./static/index.html")
+	})
 	r.Static("/screenshots", "./static/screenshots")
 	// Health check for cron keep-alive
 	r.GET("/api/v1/health", func(c *gin.Context) {
