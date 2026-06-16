@@ -60,8 +60,6 @@ func main() {
 
 	addr := "0.0.0.0:" + port
 	log.Printf("🚀 Server running on %s", addr)
-	apiKey := os.Getenv("RESEND_API_KEY") // or whatever variable name you use
-	log.Println("EMAIL KEY PREFIX:", apiKey[:6])
 
 	srv := &http.Server{
 		Addr:         addr,
