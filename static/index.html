@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Invo Billing — GST Invoicing for Indian Businesses</title>
+<meta name="description" content="Create GST-compliant invoices, track payments, manage expenses — built for Indian small businesses. Available on iOS."/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+:root{--bg:#0b100e;--surface:#111815;--text:#e9efec;--muted:#93a69e;--accent:#34d9a8;--line:rgba(233,239,236,.09)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+::selection{background:var(--accent);color:var(--bg)}
+a{color:var(--accent);text-decoration:none}
+.wrap{max-width:720px;margin:0 auto;padding:0 24px}
+.mono{font-family:'Geist Mono',monospace}
+
+/* nav */
+nav{border-bottom:1px solid var(--line);padding:16px 0}
+nav .wrap{display:flex;justify-content:space-between;align-items:center}
+nav .brand{font-weight:700;font-size:18px}
+nav .brand span{color:var(--accent)}
+
+/* hero */
+.hero{padding:80px 0 60px;text-align:center}
+.hero .badge{display:inline-block;font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:4px 14px;margin-bottom:24px}
+.hero h1{font-size:clamp(2rem,5vw,3rem);font-weight:700;line-height:1.1;letter-spacing:-.02em}
+.hero p{margin-top:16px;font-size:1.05rem;color:var(--muted);max-width:520px;margin-left:auto;margin-right:auto;line-height:1.6}
+.ctas{display:flex;gap:12px;justify-content:center;margin-top:32px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:12px 24px;font-size:14px;font-weight:500;transition:opacity .15s}
+.btn-primary{background:var(--accent);color:var(--bg)}
+.btn-primary:hover{opacity:.85}
+.btn-ghost{border:1px solid var(--line);color:var(--text)}
+.btn-ghost:hover{border-color:var(--accent)}
+
+/* features */
+.features{padding:60px 0;border-top:1px solid var(--line)}
+.features h2{font-size:12px;font-family:'Geist Mono',monospace;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);text-align:center;margin-bottom:32px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.grid>div{background:var(--surface);padding:24px}
+.grid h3{font-size:14px;font-weight:600;margin-bottom:8px}
+.grid p{font-size:13px;color:var(--muted);line-height:1.5}
+
+/* phone */
+.phone-section{padding:60px 0;text-align:center;border-top:1px solid var(--line)}
+.phone{width:220px;height:440px;border-radius:36px;background:#161c19;border:1px solid rgba(233,239,236,.14);box-shadow:inset 0 0 0 7px #050807,0 24px 48px -24px rgba(0,0,0,.7);padding:14px 12px;margin:0 auto;position:relative}
+.phone-island{position:absolute;top:18px;left:50%;transform:translateX(-50%);width:64px;height:16px;border-radius:999px;background:#040605;z-index:2}
+.phone-screen{width:100%;height:100%;border-radius:26px;background:#0d1411;overflow:hidden;display:flex;flex-direction:column;font-size:11px}
+.ps-header{display:flex;justify-content:space-between;align-items:center;padding:44px 16px 8px}
+.ps-card{background:#111815;border:1px solid var(--line);border-radius:10px;margin:6px 12px;padding:10px 12px}
+.ps-label{font-family:'Geist Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+.ps-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)}
+.ps-row:last-child{border-bottom:0}
+.ps-cta{margin:auto 12px 16px;background:var(--accent);color:var(--bg);border-radius:999px;text-align:center;padding:8px 0;font-family:'Geist Mono',monospace;font-size:8px;letter-spacing:.14em;text-transform:uppercase;font-weight:500}
+
+/* stack */
+.stack-section{padding:40px 0 60px;border-top:1px solid var(--line);text-align:center}
+.stack-section p{font-size:13px;color:var(--muted);font-family:'Geist Mono',monospace}
+
+/* footer */
+footer{border-top:1px solid var(--line);padding:24px 0;text-align:center;font-size:12px;color:var(--muted)}
+footer a{color:var(--accent)}
+
+@media(max-width:500px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <div class="brand">Invo<span>.</span></div>
+  <a href="mailto:dharmaseervi@gmail.com" class="mono" style="font-size:12px;color:var(--muted)">Contact</a>
+</div></nav>
+
+<section class="hero"><div class="wrap">
+  <span class="badge">GST-Compliant Invoicing</span>
+  <h1>Professional invoices<br/>for Indian businesses.</h1>
+  <p>Create GST-compliant invoices with correct CGST/SGST breakdowns, HSN/SAC codes, and amount-in-words — then send them as PDFs straight from your phone.</p>
+  <div class="ctas">
+    <!-- Replace # with your real App Store link once approved -->
+    <a href="#" class="btn btn-primary">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5C17.88 20.74 17 21.95 15.66 21.97C14.32 22 13.89 21.18 12.37 21.18C10.84 21.18 10.37 21.95 9.1 22C7.79 22.05 6.8 20.68 5.96 19.47C4.25 16.56 2.93 11.3 4.7 7.72C5.57 5.94 7.36 4.86 9.28 4.84C10.56 4.81 11.78 5.72 12.56 5.72C13.34 5.72 14.83 4.62 16.4 4.8C17.07 4.83 18.9 5.09 20.07 6.77C19.97 6.83 17.64 8.19 17.67 11.04C17.7 14.45 20.6 15.54 20.63 15.56C20.6 15.63 20.19 17.04 19.16 18.5L18.71 19.5ZM13 3.5C13.73 2.67 14.94 2.04 15.94 2C16.07 3.17 15.6 4.35 14.9 5.19C14.21 6.04 13.07 6.7 11.95 6.61C11.8 5.46 12.36 4.26 13 3.5Z"/></svg>
+      Coming to App Store
+    </a>
+    <a href="https://www.dharmaseervi.com" class="btn btn-ghost">Developer Portfolio</a>
+  </div>
+</div></section>
+
+<section class="features"><div class="wrap">
+  <h2>Features</h2>
+  <div class="grid">
+    <div>
+      <h3>GST-Correct PDFs</h3>
+      <p>CGST/SGST/IGST breakdowns, HSN/SAC codes, and Indian Rupee amount-in-words — every invoice compliant out of the box.</p>
+    </div>
+    <div>
+      <h3>Email Invoices</h3>
+      <p>Send invoices as PDF attachments directly from the app. One tap, straight to your client's inbox.</p>
+    </div>
+    <div>
+      <h3>Expense Tracking</h3>
+      <p>Log business expenses, categorize them, and keep a complete picture of your finances in one place.</p>
+    </div>
+    <div>
+      <h3>Client Ledger</h3>
+      <p>Track outstanding balances, payment history, and credit notes per client — no spreadsheet needed.</p>
+    </div>
+    <div>
+      <h3>Payment Recording</h3>
+      <p>Record partial or full payments against invoices. Allocate payments across multiple invoices.</p>
+    </div>
+    <div>
+      <h3>Credit Notes</h3>
+      <p>Issue returns, adjustments, and discounts with proper GST treatment. Balances update automatically.</p>
+    </div>
+  </div>
+</div></section>
+
+<section class="phone-section"><div class="wrap">
+  <img src="/screenshots/dashboard.png" 
+       alt="Invo Billing dashboard" 
+       style="width:260px;border-radius:36px;box-shadow:0 24px 48px -24px rgba(0,0,0,.7);" />
+</div></section>
+
+<section class="stack-section"><div class="wrap">
+  <p>Built with Go · PostgreSQL · SwiftUI · Docker</p>
+</div></section>
+
+<footer><div class="wrap">
+  <p>© 2026 Invo Billing · Built by <a href="https://www.dharmaseervi.com">Dharma Seervi</a></p>
+</div></footer>
+
+</body>
+</html>
