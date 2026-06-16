@@ -18,6 +18,7 @@ type CreditNote struct {
 
 type CreditNoteRequestDTO struct {
 	ClientID   int64               `json:"client_id" binding:"required"`
+	CompanyID  int64               `json:"company_id" binding:"required"`
 	InvoiceID  *int64              `json:"invoice_id"`
 	Type       string              `json:"type" binding:"required"` // item | value
 	CreditDate string              `json:"credit_date" binding:"required"`

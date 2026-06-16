@@ -13,7 +13,6 @@ import (
 
 func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 
-	authHandler := handlers.NewAuthHandler(db, []byte(cfg.JWT.Secret))
 	userHandler := handlers.NewUserHandler(db)
 	companyHandler := handlers.NewCompanyHandler(db)
 	clientHandler := handlers.NewClientHandler(db)
@@ -34,6 +33,15 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	paymentService := services.NewPaymentService(db.DB, ledgerService)
 	paymentHandler := handlers.NewPaymentHandler(db, paymentService)
 	creditNoteHandler := handlers.NewCreditNoteHandler(creditNoteService, db.DB) // ← Add this line
+	emailService := services.NewEmailService(
+		cfg.Email.ResendAPIKey,
+		cfg.Email.FromEmail,
+		cfg.Email.FromName,
+	)
+	authHandler := handlers.NewAuthHandler(db, []byte(cfg.JWT.Secret), emailService)
+	emailHandler := handlers.NewEmailHandler(emailService, db.DB)
+	// Add OTP handler
+	otpHandler := handlers.NewOTPHandler(db, emailService, []byte(cfg.JWT.Secret))
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
@@ -45,6 +53,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	{
 		public.POST("/register", authHandler.Register)
 		public.POST("/login", authHandler.Login)
+		public.POST("/forgot-password", authHandler.ForgotPassword)
+		public.POST("/reset-password", authHandler.ResetPassword)
 	}
 
 	// Protected routes
@@ -115,5 +125,16 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/companies/:companyId/banks", companyBankHandlerss.List)
 		protected.POST("/companies/:companyId/banks", companyBankHandlerss.Create)
 		protected.PUT("/companies/:companyId/banks/:bankId", companyBankHandlerss.Update)
+
+		protected.POST("/invoices/:id/send-email", emailHandler.SendInvoiceEmail)
+
+		// Add to public routes (no auth needed)
+		public.POST("/send-otp", otpHandler.SendOTP)
+		public.POST("/verify-otp", otpHandler.VerifyOTP)
+		// Add to public routes
+		public.POST("/verify-email", authHandler.VerifyEmail)
+		public.POST("/resend-verification", authHandler.ResendVerification)
+
+		protected.DELETE("/account", authHandler.DeleteAccount)
 	}
 }

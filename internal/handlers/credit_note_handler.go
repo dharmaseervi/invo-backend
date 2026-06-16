@@ -78,12 +78,32 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 func (h *CreditNoteHandler) GetAll(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
-	var companyID int64
-	err := h.db.QueryRow(`
-		SELECT id FROM companies WHERE user_id = $1
-	`, userID).Scan(&companyID)
+	// ✅ Must read from query param
+	companyIDStr := c.Query("company_id")
 
+	// Add this debug
+	log.Printf("🏢 GetAll called with company_id: %s, user_id: %d", companyIDStr, userID)
+
+	if companyIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
+		return
+	}
+
+	companyID, err := strconv.ParseInt(companyIDStr, 10, 64)
 	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid company_id"})
+		return
+	}
+
+	// Verify ownership
+	var exists bool
+	h.db.QueryRow(`
+        SELECT EXISTS(
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+        )
+    `, companyID, userID).Scan(&exists)
+
+	if !exists {
 		c.JSON(http.StatusForbidden, gin.H{"error": "unauthorized"})
 		return
 	}

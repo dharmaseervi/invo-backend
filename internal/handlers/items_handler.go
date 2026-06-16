@@ -58,11 +58,12 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 	}
 
 	// Insert the item
+	// ✅ New
 	_, err = h.db.DB.Exec(`
-		INSERT INTO items 
-		(name, category_id, sku, unit, description, cost_price, price, quantity, low_stock_alert, tax_rate, company_id, user_id) 
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-	`,
+    INSERT INTO items 
+    (name, category_id, sku, unit, description, cost_price, price, quantity, low_stock_alert, tax_rate, hsn_code, company_id, user_id) 
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+`,
 		request.Name,
 		request.CategoryID,
 		request.SKU,
@@ -73,6 +74,7 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 		request.Quantity,
 		request.LowStockAlert,
 		request.TaxRate,
+		request.HSNCode,
 		request.CompanyID,
 		userID,
 	)
@@ -111,12 +113,11 @@ func (h *itemHandler) GetItems(c *gin.Context) {
 	// Fetch items
 	rows, err := h.db.DB.Query(`
         SELECT 
-            id, name, category_id, sku, unit, description,
-            cost_price, price, quantity, low_stock_alert, tax_rate,
-            company_id, user_id, created_at, updated_at
-        FROM items
-        WHERE company_id = $1
-        ORDER BY id DESC
+        id, name, category_id, sku, unit, description,
+        cost_price, price, quantity, low_stock_alert, tax_rate,
+        hsn_code, company_id, user_id, created_at, updated_at
+FROM items
+WHERE company_id = $1
     `, companyID)
 
 	if err != nil {
@@ -126,34 +127,25 @@ func (h *itemHandler) GetItems(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var items []models.Item
+	items := []models.Item{}
 
 	for rows.Next() {
 		var item models.Item
+		// ✅ New Scan
 		if err := rows.Scan(
-			&item.ID,
-			&item.Name,
-			&item.CategoryID,
-			&item.SKU,
-			&item.Unit,
-			&item.Description,
-			&item.CostPrice,
-			&item.Price,
-			&item.Quantity,
-			&item.LowStockAlert,
-			&item.TaxRate,
-			&item.CompanyID,
-			&item.UserID,
-			&item.CreatedAt,
-			&item.UpdatedAt,
+			&item.ID, &item.Name, &item.CategoryID,
+			&item.SKU, &item.Unit, &item.Description,
+			&item.CostPrice, &item.Price, &item.Quantity,
+			&item.LowStockAlert, &item.TaxRate,
+			&item.HSNCode,
+			&item.CompanyID, &item.UserID,
+			&item.CreatedAt, &item.UpdatedAt,
 		); err == nil {
 			items = append(items, item)
 		}
 	}
 
-	c.JSON(200, gin.H{
-		"items": items,
-	})
+	c.JSON(200, gin.H{"items": items})
 }
 
 func (h *itemHandler) GetItemByID(c *gin.Context) {
@@ -164,27 +156,19 @@ func (h *itemHandler) GetItemByID(c *gin.Context) {
 
 	err := h.db.DB.QueryRow(`
 		SELECT 
-			id, name, category_id, sku, unit, description,
-			cost_price, price, quantity, low_stock_alert, tax_rate,
-			company_id, user_id, created_at, updated_at
-		FROM items
-		WHERE id = $1 AND user_id = $2
+    id, name, category_id, sku, unit, description,
+    cost_price, price, quantity, low_stock_alert, tax_rate,
+    hsn_code, company_id, user_id, created_at, updated_at
+FROM items
+WHERE id = $1 AND user_id = $2
 	`, itemID, userID).Scan(
-		&item.ID,
-		&item.Name,
-		&item.CategoryID,
-		&item.SKU,
-		&item.Unit,
-		&item.Description,
-		&item.CostPrice,
-		&item.Price,
-		&item.Quantity,
-		&item.LowStockAlert,
-		&item.TaxRate,
-		&item.CompanyID,
-		&item.UserID,
-		&item.CreatedAt,
-		&item.UpdatedAt,
+		&item.ID, &item.Name, &item.CategoryID,
+		&item.SKU, &item.Unit, &item.Description,
+		&item.CostPrice, &item.Price, &item.Quantity,
+		&item.LowStockAlert, &item.TaxRate,
+		&item.HSNCode,
+		&item.CompanyID, &item.UserID,
+		&item.CreatedAt, &item.UpdatedAt,
 	)
 
 	if err != nil {

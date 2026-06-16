@@ -1,4 +1,4 @@
-CREATE TABLE payment_allocations (
+CREATE TABLE IF NOT EXISTS payment_allocations (
     id BIGSERIAL PRIMARY KEY,
     payment_id BIGINT NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
     invoice_id BIGINT NOT NULL REFERENCES invoices(id),

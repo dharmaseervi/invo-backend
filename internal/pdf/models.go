@@ -44,10 +44,12 @@ type Invoice struct {
 }
 
 type InvoiceItem struct {
-	Name  string
-	Qty   int
-	Rate  float64
-	Total float64
+	Name    string
+	Qty     int
+	HSNCode string
+	Rate    float64
+	TaxRate float64
+	Total   float64
 }
 
 type CompanyBankDetails struct {

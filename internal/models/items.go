@@ -8,6 +8,7 @@ type Item struct {
 	CompanyID     int       `json:"company_id"`
 	Name          string    `json:"name"`
 	Category      int       `json:"category"`
+	HSNCode       string    `json:"hsn_code"`
 	SKU           string    `json:"sku"`
 	Unit          string    `json:"unit"`
 	Description   string    `json:"description"`

@@ -90,14 +90,21 @@ func (s *LedgerService) GetClientLedger(
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
-			id, company_id, client_id,
-			source_type, source_id,
-			debit, credit, balance,
-			COALESCE(description, ''),
-			created_at
-		FROM ledger_entries
-		WHERE company_id = $1 AND client_id = $2
-		ORDER BY created_at ASC
+    le.id,
+    le.company_id,
+    le.client_id,
+    c.name AS client_name,
+    le.source_type,
+    le.source_id,
+    le.debit,
+    le.credit,
+    le.balance,
+    COALESCE(le.description, ''),
+    le.created_at
+FROM ledger_entries le
+JOIN clients c ON c.id = le.client_id
+WHERE le.company_id = $1 AND le.client_id = $2
+ORDER BY le.created_at ASC
 	`, companyID, clientID)
 
 	if err != nil {
@@ -113,6 +120,7 @@ func (s *LedgerService) GetClientLedger(
 			&e.ID,
 			&e.CompanyID,
 			&e.ClientID,
+			&e.ClientName,
 			&e.SourceType,
 			&e.SourceID,
 			&e.Debit,
@@ -136,20 +144,22 @@ func (s *LedgerService) GetCompanyLedger(
 ) ([]models.LedgerEntry, error) {
 
 	rows, err := s.db.QueryContext(ctx, `
-        SELECT
-            id,
-            company_id,
-            client_id,
-            source_type,
-            source_id,
-            debit,
-            credit,
-            balance,
-            description,
-            created_at
-        FROM ledger_entries
-        WHERE company_id = $1
-        ORDER BY created_at ASC
+	SELECT
+    le.id,
+    le.company_id,
+    le.client_id,
+    c.name AS client_name,   -- ✅ GET FROM CLIENTS
+    le.source_type,
+    le.source_id,
+    le.debit,
+    le.credit,
+    le.balance,
+    le.description,
+    le.created_at
+FROM ledger_entries le
+JOIN clients c ON c.id = le.client_id   -- ✅ THIS IS KEY
+WHERE le.company_id = $1
+ORDER BY le.created_at ASC
     `, companyID)
 
 	if err != nil {
@@ -165,6 +175,7 @@ func (s *LedgerService) GetCompanyLedger(
 			&e.ID,
 			&e.CompanyID,
 			&e.ClientID,
+			&e.ClientName,
 			&e.SourceType,
 			&e.SourceID,
 			&e.Debit,

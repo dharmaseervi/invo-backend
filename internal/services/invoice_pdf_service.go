@@ -49,15 +49,16 @@ func FetchInvoicePDFData(
 	   2️⃣ Fetch company address
 	------------------------------ */
 	err = db.QueryRow(`
-		SELECT
-			name, line1, city, state, country
-		FROM company_addresses
-		WHERE company_id = (
-			SELECT company_id FROM invoices WHERE id = $1
-		)
-		AND type = 'billing'
-		LIMIT 1
-	`, invoiceID).Scan(
+    SELECT 
+        c.name,
+        c.address,
+        c.city,
+        c.state,
+        'India'
+    FROM companies c
+    JOIN invoices i ON i.company_id = c.id
+    WHERE i.id = $1
+`, invoiceID).Scan(
 		&data.CompanyAddress.Name,
 		&data.CompanyAddress.Line1,
 		&data.CompanyAddress.City,
@@ -112,6 +113,7 @@ func FetchInvoicePDFData(
 	itemRows, err := db.Query(`
 		SELECT
 			it.name,
+			COALESCE(it.hsn_code, ''),
 			ii.qty,
 			ii.rate,
 			ii.total
@@ -131,6 +133,7 @@ func FetchInvoicePDFData(
 
 		if err := itemRows.Scan(
 			&item.Name,
+			&item.HSNCode,
 			&item.Qty,
 			&item.Rate,
 			&item.Total,
