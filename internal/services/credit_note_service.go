@@ -131,6 +131,7 @@ func (s *CreditNoteService) CreateTx(
 		narration,
 	)
 }
+
 func (s *CreditNoteService) GetAll(
 	companyID int64,
 ) ([]models.CreditNoteListDTO, error) {
@@ -156,7 +157,7 @@ func (s *CreditNoteService) GetAll(
 	}
 	defer rows.Close()
 
-	var result []models.CreditNoteListDTO
+	result := []models.CreditNoteListDTO{}
 
 	for rows.Next() {
 		var r models.CreditNoteListDTO

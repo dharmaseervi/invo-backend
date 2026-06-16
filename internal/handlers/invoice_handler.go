@@ -5,6 +5,7 @@ import (
 	"fmt"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
+	"invo-server/internal/pdf"
 	"invo-server/internal/services"
 	utils "invo-server/internal/util"
 	"log"
@@ -1084,4 +1085,27 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	tx.Commit()
 
 	c.JSON(200, gin.H{"message": "Invoice issued successfully"})
+}
+
+// handlers/invoice_handler.go (add this method)
+
+func (h *InvoiceHandler) GeneratePDFBytes(invoiceID string) ([]byte, string, error) {
+	id, err := strconv.Atoi(invoiceID)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid invoice id: %w", err)
+	}
+
+	// Fetch invoice data (same as InvoicePDFHandler)
+	pdfData, err := services.FetchInvoicePDFData(h.db.DB, id)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to fetch invoice data: %w", err)
+	}
+
+	// Generate PDF — hardcode "original" for email copies
+	pdfBytes, err := pdf.GenerateTallyInvoicePDF(pdfData, "original")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate PDF: %w", err)
+	}
+
+	return pdfBytes, pdfData.Invoice.InvoiceNumber, nil
 }

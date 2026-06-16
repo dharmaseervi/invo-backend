@@ -33,6 +33,12 @@ type Config struct {
 	}
 
 	Environment string
+
+	Email struct {
+		ResendAPIKey string
+		FromEmail    string
+		FromName     string
+	}
 }
 
 func Load() *Config {
@@ -60,6 +66,10 @@ func Load() *Config {
 	config.JWT.RefreshExpiry = getEnvAsDuration("JWT_REFRESH_EXPIRY", 24*time.Hour)
 
 	config.Environment = getEnv("ENVIRONMENT", "development")
+
+	config.Email.ResendAPIKey = getEnv("RESEND_API_KEY", "")
+	config.Email.FromEmail = getEnv("EMAIL_FROM", "")
+	config.Email.FromName = getEnv("EMAIL_FROM_NAME", "Invoice App")
 
 	return config
 }
