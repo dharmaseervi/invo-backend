@@ -142,6 +142,7 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 		req.Email,
 	).Scan(&userID, &email)
 	if err != nil {
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found"})
 		return
 	}
