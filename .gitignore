@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+
+.DS_Store
+**/.DS_Store
+
+bin/
+tmp/
+*.log
+
+.idea/
+.vscode/
