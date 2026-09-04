@@ -115,7 +115,7 @@ func (h *DashboardHandler) GetDashboard(c *gin.Context) {
 		}
 		defer rows.Close()
 
-		var recent []models.RecentInvoice
+		recent := []models.RecentInvoice{}
 		for rows.Next() {
 			var inv models.RecentInvoice
 			if err := rows.Scan(

@@ -71,8 +71,11 @@ func Load() *Config {
 		config.JWT.Secret = getEnv("JWT_SECRET", "dev-only-insecure-secret")
 	}
 
-	config.JWT.TokenExpiry = getEnvAsDuration("JWT_TOKEN_EXPIRY", time.Hour)
-	config.JWT.RefreshExpiry = getEnvAsDuration("JWT_REFRESH_EXPIRY", 24*time.Hour)
+	// The mobile app has no refresh-token flow wired up (long-lived session +
+	// biometric lock is used instead), so the access token itself needs to
+	// outlive a normal session instead of expiring hourly.
+	config.JWT.TokenExpiry = getEnvAsDuration("JWT_TOKEN_EXPIRY", 30*24*time.Hour)
+	config.JWT.RefreshExpiry = getEnvAsDuration("JWT_REFRESH_EXPIRY", 90*24*time.Hour)
 
 	config.Email.ResendAPIKey = getEnv("RESEND_API_KEY", "")
 	config.Email.FromEmail = getEnv("EMAIL_FROM", "")

@@ -88,7 +88,7 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var categories []models.Category
+	categories := []models.Category{}
 
 	for rows.Next() {
 		var cat models.Category

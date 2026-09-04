@@ -154,7 +154,7 @@ func (s *PaymentService) autoAllocateFIFO(
 	defer rows.Close()
 
 	remaining := amount
-	var allocations []models.PaymentAllocationDTO
+	allocations := []models.PaymentAllocationDTO{}
 
 	for rows.Next() && remaining > 0 {
 		var invoiceID int64

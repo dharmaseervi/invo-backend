@@ -22,7 +22,7 @@ func GetCompanyBanks(db *sql.DB, companyID int, c *gin.Context) ([]models.Compan
 	}
 	defer rows.Close()
 
-	var banks []models.CompanyBank
+	banks := []models.CompanyBank{}
 
 	for rows.Next() {
 		var b models.CompanyBank

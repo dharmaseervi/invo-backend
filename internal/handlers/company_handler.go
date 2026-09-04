@@ -81,7 +81,7 @@ func (h *CompanyHandler) GetMyCompanies(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var companies []models.Company
+	companies := []models.Company{}
 
 	for rows.Next() {
 		var company models.Company

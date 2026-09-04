@@ -645,7 +645,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var invoices []gin.H
+	invoices := []gin.H{}
 
 	for rows.Next() {
 		var (
@@ -798,7 +798,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var items []gin.H
+	items := []gin.H{}
 	for rows.Next() {
 		var (
 			itemRowID, itemID, qty             int
@@ -940,7 +940,7 @@ func (h *InvoiceHandler) GetUnpaidInvoices(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var invoices []models.InvoiceSummary
+	invoices := []models.InvoiceSummary{}
 	for rows.Next() {
 		var inv models.InvoiceSummary
 		rows.Scan(
@@ -1003,7 +1003,7 @@ func (h *InvoiceHandler) GetInvoicesByClientID(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var invoices []models.Invoice
+	invoices := []models.Invoice{}
 
 	for rows.Next() {
 		var inv models.Invoice

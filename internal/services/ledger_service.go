@@ -112,7 +112,7 @@ ORDER BY le.created_at ASC
 	}
 	defer rows.Close()
 
-	var entries []models.LedgerEntry
+	entries := []models.LedgerEntry{}
 
 	for rows.Next() {
 		var e models.LedgerEntry
@@ -167,7 +167,7 @@ ORDER BY le.created_at ASC
 	}
 	defer rows.Close()
 
-	var entries []models.LedgerEntry
+	entries := []models.LedgerEntry{}
 
 	for rows.Next() {
 		var e models.LedgerEntry
