@@ -21,8 +21,8 @@ type InvoiceHandler struct {
 	LedgerService *services.LedgerService
 }
 
-func NewInvoiceHandler(db *database.Database) *InvoiceHandler {
-	return &InvoiceHandler{db: db}
+func NewInvoiceHandler(db *database.Database, ledgerService *services.LedgerService) *InvoiceHandler {
+	return &InvoiceHandler{db: db, LedgerService: ledgerService}
 }
 
 func insertInvoiceAddress(
@@ -589,23 +589,25 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 
 	query := `
 		SELECT
-			id,
-			company_id,
-			client_id,
-			invoice_number,
-			invoice_date,
-			due_date,
-			subtotal,
-			tax,
-			total,
-			paid_amount,
-			remaining_amount,
-			status,
-			created_at,
-			GREATEST(0, CURRENT_DATE - due_date) AS days_overdue,
-			CURRENT_DATE > due_date AND status != 'paid' AS is_overdue
-		FROM invoices
-		WHERE user_id = $1
+			i.id,
+			i.company_id,
+			i.client_id,
+			i.invoice_number,
+			i.invoice_date,
+			i.due_date,
+			i.subtotal,
+			i.tax,
+			i.total,
+			i.paid_amount,
+			i.remaining_amount,
+			i.status,
+			i.created_at,
+			GREATEST(0, CURRENT_DATE - i.due_date) AS days_overdue,
+			CURRENT_DATE > i.due_date AND i.status != 'paid' AS is_overdue,
+			COALESCE(c.name, '')
+		FROM invoices i
+		JOIN clients c ON c.id = i.client_id
+		WHERE i.user_id = $1
 	`
 
 	args := []interface{}{userID}
@@ -613,7 +615,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 
 	if companyIDStr != "" {
 		if companyID, err := strconv.Atoi(companyIDStr); err == nil {
-			query += ` AND company_id = $` + strconv.Itoa(argPos)
+			query += ` AND i.company_id = $` + strconv.Itoa(argPos)
 			args = append(args, companyID)
 			argPos++
 		}
@@ -621,14 +623,14 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 
 	if clientIDStr != "" {
 		if clientID, err := strconv.Atoi(clientIDStr); err == nil {
-			query += ` AND client_id = $` + strconv.Itoa(argPos)
+			query += ` AND i.client_id = $` + strconv.Itoa(argPos)
 			args = append(args, clientID)
 			argPos++
 		}
 	}
 
 	query += `
-		ORDER BY invoice_date DESC
+		ORDER BY i.invoice_date DESC
 		LIMIT $` + strconv.Itoa(argPos) +
 		` OFFSET $` + strconv.Itoa(argPos+1)
 
@@ -655,6 +657,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			paidAmount, remaining   float64
 			daysOverdue             int
 			isOverdue               bool
+			clientName              string
 		)
 
 		if err := rows.Scan(
@@ -673,6 +676,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			&createdAt,
 			&daysOverdue,
 			&isOverdue,
+			&clientName,
 		); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Failed to scan invoice",
@@ -684,6 +688,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			"id":               id,
 			"company_id":       companyID,
 			"client_id":        clientID,
+			"client_name":      clientName,
 			"invoice_number":   invoiceNumber,
 			"invoice_date":     invoiceDate.Format("2006-01-02"),
 			"due_date":         dueDate.Format("2006-01-02"),
@@ -908,6 +913,17 @@ func (h *InvoiceHandler) GetUnpaidInvoices(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetInt("user_id")
+	owned, err := companyBelongsToUser(h.db.DB, companyID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	rows, err := h.db.DB.Query(`
 		SELECT id, invoice_number, remaining_amount, invoice_date
 		FROM invoices
@@ -918,8 +934,8 @@ func (h *InvoiceHandler) GetUnpaidInvoices(c *gin.Context) {
 	`, companyID, clientID)
 
 	if err != nil {
-		fmt.Println("SQL ERROR:", err)
-		c.JSON(500, gin.H{"error": err.Error()})
+		log.Println("SQL ERROR:", err)
+		c.JSON(500, gin.H{"error": "Failed to fetch unpaid invoices"})
 		return
 	}
 	defer rows.Close()
@@ -935,7 +951,6 @@ func (h *InvoiceHandler) GetUnpaidInvoices(c *gin.Context) {
 		)
 		invoices = append(invoices, inv)
 	}
-	fmt.Println("Unpaid invoices:", invoices)
 
 	c.JSON(200, gin.H{"data": invoices})
 }

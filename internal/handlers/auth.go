@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"database/sql"
-	"fmt"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
 	"invo-server/internal/services"
@@ -94,20 +93,20 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		user.Email, code, expiresAt,
 	)
 	if err != nil {
+		log.Printf("OTP insert error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save OTP"})
-		return
+		return // ← ADD THIS!
 	}
 
 	// Send verification email
 	err = h.emailService.SendVerificationEmail(user.Email, code)
 	if err != nil {
+		log.Printf("Email error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send verification email"})
-		return
+		return // ← ADD THIS!
 	}
-	log.Println("DB error:", err)
-	c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 
-	// Return user ID and email — NO token yet (not verified)
+	// ✅ Only ONE response at the end
 	c.JSON(http.StatusCreated, gin.H{
 		"message":               "Account created! Check your email for verification code.",
 		"user_id":               id,
@@ -354,11 +353,6 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 // DELETE /api/v1/account
 func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 	userIDVal, exists := c.Get("user_id")
-	authHeader := c.GetHeader("Authorization")
-	log.Printf("🔑 Auth header received: %s", authHeader)
-
-	log.Printf("👤 user_id exists: %v, value: %v", exists, userIDVal)
-
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
@@ -387,16 +381,29 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 		{"users", `DELETE FROM users WHERE id = $1`},
 	}
 
+	tx, err := h.db.DB.Begin()
+	if err != nil {
+		log.Printf("❌ Failed to start account deletion transaction: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
+		return
+	}
+
 	for _, q := range queries {
-		if _, err := h.db.DB.Exec(q.query, userID); err != nil {
-			log.Printf("❌ Failed deleting %s: %v", q.name, err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed at: %s — %v", q.name, err),
-			})
+		if _, err := tx.Exec(q.query, userID); err != nil {
+			tx.Rollback()
+			log.Printf("❌ Failed deleting %s for user %d: %v", q.name, userID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
 			return
 		}
-		log.Printf("✅ Deleted %s for user %d", q.name, userID)
 	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("❌ Failed to commit account deletion for user %d: %v", userID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
+		return
+	}
+
+	log.Printf("✅ Account deleted for user %d", userID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Account deleted successfully",

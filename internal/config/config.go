@@ -54,24 +54,41 @@ func Load() *Config {
 	config.Server.ReadTimeout = getEnvAsDuration("SERVER_READ_TIMEOUT", 15*time.Second)
 	config.Server.WriteTimeout = getEnvAsDuration("SERVER_WRITE_TIMEOUT", 15*time.Second)
 
+	config.Environment = getEnv("ENVIRONMENT", "development")
+
 	config.Database.Host = getEnv("DB_HOST", "localhost")
 	config.Database.Port = getEnv("DB_PORT", "5432")
-	config.Database.User = getEnv("DB_USER", "user")
-	config.Database.Password = getEnv("DB_PASSWORD", "password")
 	config.Database.DBName = getEnv("DB_NAME", "invo_db")
 	config.Database.SSLMode = getEnv("DB_SSLMODE", "disable")
 
-	config.JWT.Secret = getEnv("JWT_SECRET", "supersecretkey")
+	if config.Environment == "production" {
+		config.Database.User = mustGetEnv("DB_USER")
+		config.Database.Password = mustGetEnv("DB_PASSWORD")
+		config.JWT.Secret = mustGetEnv("JWT_SECRET")
+	} else {
+		config.Database.User = getEnv("DB_USER", "user")
+		config.Database.Password = getEnv("DB_PASSWORD", "password")
+		config.JWT.Secret = getEnv("JWT_SECRET", "dev-only-insecure-secret")
+	}
+
 	config.JWT.TokenExpiry = getEnvAsDuration("JWT_TOKEN_EXPIRY", time.Hour)
 	config.JWT.RefreshExpiry = getEnvAsDuration("JWT_REFRESH_EXPIRY", 24*time.Hour)
-
-	config.Environment = getEnv("ENVIRONMENT", "development")
 
 	config.Email.ResendAPIKey = getEnv("RESEND_API_KEY", "")
 	config.Email.FromEmail = getEnv("EMAIL_FROM", "")
 	config.Email.FromName = getEnv("EMAIL_FROM_NAME", "Invoice App")
 
 	return config
+}
+
+// mustGetEnv fails fast on startup instead of silently running production
+// with a default/guessable secret or database credential.
+func mustGetEnv(key string) string {
+	value, exists := os.LookupEnv(key)
+	if !exists || value == "" {
+		log.Fatalf("Missing required environment variable %s in production", key)
+	}
+	return value
 }
 
 func getEnv(key, defaultValue string) string {

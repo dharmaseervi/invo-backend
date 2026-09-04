@@ -45,18 +45,17 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 		}
 	}()
 
-	var companyID int64
-
+	var exists bool
 	err = tx.QueryRow(`
-		SELECT id FROM companies WHERE user_id = $1
-	`, userID).Scan(&companyID)
+		SELECT EXISTS (SELECT 1 FROM companies WHERE id = $1 AND user_id = $2)
+	`, req.CompanyID, userID).Scan(&exists)
 
-	if err != nil {
+	if err != nil || !exists {
 		c.JSON(403, gin.H{"error": "unauthorized"})
 		return
 	}
 
-	if err := h.service.CreateTx(tx, companyID, req); err != nil {
+	if err := h.service.CreateTx(tx, req.CompanyID, req); err != nil {
 		fmt.Println("Error creating credit note:", err)
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
@@ -134,10 +133,14 @@ func (h *CreditNoteHandler) GetByID(c *gin.Context) {
 	defer tx.Rollback()
 
 	var companyID int64
-	err = tx.QueryRow(`SELECT id FROM companies WHERE user_id = $1`, userID).
-		Scan(&companyID)
+	err = tx.QueryRow(`
+		SELECT cn.company_id
+		FROM credit_notes cn
+		JOIN companies c ON c.id = cn.company_id
+		WHERE cn.id = $1 AND c.user_id = $2
+	`, cnID, userID).Scan(&companyID)
 	if err != nil {
-		c.JSON(403, gin.H{"error": "unauthorized"})
+		c.JSON(404, gin.H{"error": "credit note not found"})
 		return
 	}
 

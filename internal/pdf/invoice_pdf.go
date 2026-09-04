@@ -500,7 +500,30 @@ func (g *TallyInvoiceGenerator) bankRow(y float64, label, value string) {
 }
 
 // ─── Global Wrapper ───────────────────────────────────────────────────────────
+
+// GenerateTallyInvoicePDF is kept for backward compatibility — always renders
+// the Classic/Tally-style template. New callers should use GenerateInvoicePDF.
 func GenerateTallyInvoicePDF(data InvoicePDFData, copyType string) ([]byte, error) {
 	generator := NewTallyInvoiceGenerator(data, copyType)
 	return generator.Generate()
+}
+
+// Template names accepted by GenerateInvoicePDF.
+const (
+	TemplateClassic = "classic"
+	TemplateModern  = "modern"
+	TemplateMinimal = "minimal"
+)
+
+// GenerateInvoicePDF renders the invoice using the requested template style,
+// falling back to Classic for an unknown/empty value.
+func GenerateInvoicePDF(data InvoicePDFData, copyType string, template string) ([]byte, error) {
+	switch strings.ToLower(strings.TrimSpace(template)) {
+	case TemplateModern:
+		return NewModernInvoiceGenerator(data, copyType).Generate()
+	case TemplateMinimal:
+		return NewMinimalInvoiceGenerator(data, copyType).Generate()
+	default:
+		return NewTallyInvoiceGenerator(data, copyType).Generate()
+	}
 }

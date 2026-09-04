@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"invo-server/internal/pdf"
 	"invo-server/internal/services"
 	"log"
@@ -41,9 +40,21 @@ func (h *EmailHandler) SendInvoiceEmail(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetInt("user_id")
+	owned, err := invoiceBelongsToUser(h.db, invoiceID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify invoice"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	data, err := services.FetchInvoicePDFData(h.db, invoiceID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to fetch invoice: %v", err)})
+		log.Println("FETCH INVOICE ERROR:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch invoice"})
 		return
 	}
 
@@ -60,8 +71,8 @@ func (h *EmailHandler) SendInvoiceEmail(c *gin.Context) {
 		pdfBytes,
 	)
 	if err != nil {
-		log.Println("EMAIL ERROR:", err) // add this
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to send email: %v", err)})
+		log.Println("EMAIL ERROR:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send email"})
 		return
 	}
 

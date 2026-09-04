@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"fmt"
+	"database/sql"
 	"net/http"
 	"strconv"
 
@@ -12,10 +12,11 @@ import (
 
 type LedgerHandler struct {
 	ledgerService *services.LedgerService
+	db            *sql.DB
 }
 
-func NewLedgerHandler(ls *services.LedgerService) *LedgerHandler {
-	return &LedgerHandler{ledgerService: ls}
+func NewLedgerHandler(ls *services.LedgerService, db *sql.DB) *LedgerHandler {
+	return &LedgerHandler{ledgerService: ls, db: db}
 }
 
 // GET /api/v1/ledger/:clientId
@@ -38,6 +39,17 @@ func (h *LedgerHandler) GetClientLedger(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetInt("user_id")
+	owned, err := companyBelongsToUser(h.db, companyID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	entries, err := h.ledgerService.GetClientLedger(
 		c.Request.Context(),
 		companyID,
@@ -48,8 +60,6 @@ func (h *LedgerHandler) GetClientLedger(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	fmt.Println("Ledger entries:", entries)
 
 	c.JSON(http.StatusOK, gin.H{
 		"data": entries,
@@ -69,6 +79,17 @@ func (h *LedgerHandler) GetCompanyLedger(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetInt("user_id")
+	owned, err := companyBelongsToUser(h.db, companyID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	entries, err := h.ledgerService.GetCompanyLedger(
 		c.Request.Context(),
 		companyID,
@@ -79,7 +100,6 @@ func (h *LedgerHandler) GetCompanyLedger(c *gin.Context) {
 		})
 		return
 	}
-	fmt.Println("Company Ledger entries:", entries)
 	c.JSON(http.StatusOK, gin.H{
 		"data": entries,
 	})

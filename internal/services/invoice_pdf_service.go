@@ -49,11 +49,11 @@ func FetchInvoicePDFData(
 	   2️⃣ Fetch company address
 	------------------------------ */
 	err = db.QueryRow(`
-    SELECT 
-        c.name,
-        c.address,
-        c.city,
-        c.state,
+    SELECT
+        COALESCE(c.name, ''),
+        COALESCE(c.address, ''),
+        COALESCE(c.city, ''),
+        COALESCE(c.state, ''),
         'India'
     FROM companies c
     JOIN invoices i ON i.company_id = c.id
@@ -75,7 +75,12 @@ func FetchInvoicePDFData(
 	------------------------------ */
 	rows, err := db.Query(`
 		SELECT
-			type, name, line1, city, state, country
+			type,
+			COALESCE(name, ''),
+			COALESCE(line1, ''),
+			COALESCE(city, ''),
+			COALESCE(state, ''),
+			COALESCE(country, '')
 		FROM invoice_addresses
 		WHERE invoice_id = $1
 	`, invoiceID)

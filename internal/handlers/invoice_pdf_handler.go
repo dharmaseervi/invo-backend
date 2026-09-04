@@ -37,6 +37,7 @@ func (h *InvoicePDFHandler) GetInvoicePDF(c *gin.Context) {
 		return
 	}
 	copyType := c.DefaultQuery("copy", "original")
+	template := c.DefaultQuery("template", pdf.TemplateClassic)
 
 	userID := c.GetInt("user_id")
 
@@ -68,7 +69,7 @@ func (h *InvoicePDFHandler) GetInvoicePDF(c *gin.Context) {
 	}
 
 	// 📄 Generate PDF in memory
-	pdfBytes, err := pdf.GenerateTallyInvoicePDF(pdfData, copyType)
+	pdfBytes, err := pdf.GenerateInvoicePDF(pdfData, copyType, template)
 
 	if err != nil {
 		log.Printf("❌ PDF generation failed: %v", err)

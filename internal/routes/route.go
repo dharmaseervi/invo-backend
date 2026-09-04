@@ -18,7 +18,6 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	clientHandler := handlers.NewClientHandler(db)
 	itemHandler := handlers.NewItemHandler(db)
 	categoryHandler := handlers.NewCategoryHandler(db)
-	invoiceHandler := handlers.NewInvoiceHandler(db)
 	expenseHandler := handlers.NewExpenseHandler(db) // ← Add this line
 	clientAddressHandler := handlers.NewClientAddressHandler(db)
 	companyAddressHandler := handlers.NewCompanyAddressHandler(db)
@@ -27,7 +26,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	companyBankHandlerss := handlers.NewCompanyBankHandler(db.DB)
 
 	ledgerService := services.NewLedgerService(db.DB)
-	ledgerHandler := handlers.NewLedgerHandler(ledgerService)
+	ledgerHandler := handlers.NewLedgerHandler(ledgerService, db.DB)
+	invoiceHandler := handlers.NewInvoiceHandler(db, ledgerService)
 	creditNoteService := services.NewCreditNoteService(db.DB, ledgerService)
 
 	paymentService := services.NewPaymentService(db.DB, ledgerService)
@@ -50,6 +50,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 
 	// Public routes
 	public := r.Group("/api/v1")
+	public.Use(middleware.RateLimiter())
 	{
 		public.POST("/register", authHandler.Register)
 		public.POST("/login", authHandler.Login)

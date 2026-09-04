@@ -21,6 +21,17 @@ func NewCompanyBankHandler(db *sql.DB) *CompanyBankHandler {
 }
 func (h *CompanyBankHandler) List(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("companyId"))
+	userID := c.GetInt("user_id")
+
+	owned, err := companyBelongsToUser(h.db, int64(id), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	banks, err := services.GetCompanyBanks(h.db, id, c)
 	if err != nil {
@@ -39,6 +50,17 @@ func (h *CompanyBankHandler) Create(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetInt("user_id")
+	owned, err := companyBelongsToUser(h.db, int64(bank.CompanyID), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
+
 	if err := services.CreateCompanyBank(h.db, &bank); err != nil {
 		fmt.Println("Error creating company bank:", err)
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -49,6 +71,17 @@ func (h *CompanyBankHandler) Create(c *gin.Context) {
 }
 func (h *CompanyBankHandler) Update(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("bankId"))
+	userID := c.GetInt("user_id")
+
+	owned, err := bankBelongsToUser(h.db, id, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify bank account"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
 
 	var bank models.CompanyBank
 	if err := c.ShouldBindJSON(&bank); err != nil {
