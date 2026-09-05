@@ -1,0 +1,3 @@
+-- 23's up was an exact duplicate of 22's (CREATE TABLE IF NOT EXISTS, same schema)
+-- so it never actually changed anything beyond what 22 already created — nothing
+-- to undo here; 22's down drops the table.

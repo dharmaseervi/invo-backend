@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS credit_note_items CASCADE;
+DROP TABLE IF EXISTS credit_notes CASCADE;

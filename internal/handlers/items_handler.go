@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"fmt"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -80,8 +80,8 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 	)
 
 	if err != nil {
-		fmt.Println("SQL ERROR:", err)
-		c.JSON(500, gin.H{"error": "Failed to create item", "detail": err.Error()})
+		log.Println("failed to create item:", err)
+		c.JSON(500, gin.H{"error": "Failed to create item"})
 		return
 	}
 
@@ -93,8 +93,6 @@ func (h *itemHandler) GetItems(c *gin.Context) {
 	companyID := c.Param("companyId")
 	userID := c.GetInt("user_id")
 
-	fmt.Println("Fetching items for company:", companyID, "by user:", userID)
-
 	// Validate company ownership
 	var exists bool
 	h.db.DB.QueryRow(`
@@ -105,7 +103,6 @@ func (h *itemHandler) GetItems(c *gin.Context) {
     `, companyID, userID).Scan(&exists)
 
 	if !exists {
-		fmt.Println("Unauthorized access attempt by user:", userID)
 		c.JSON(403, gin.H{"error": "Unauthorized company access"})
 		return
 	}
@@ -121,7 +118,7 @@ WHERE company_id = $1
     `, companyID)
 
 	if err != nil {
-		fmt.Println("SQL ERROR:", err)
+		log.Println("failed to fetch items:", err)
 		c.JSON(500, gin.H{"error": "Failed to fetch items"})
 		return
 	}

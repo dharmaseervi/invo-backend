@@ -1,0 +1,3 @@
+-- 08's up was an exact duplicate of 07's (same ALTER statements, all idempotent
+-- IF EXISTS/IF NOT EXISTS). It changed nothing beyond what 07 already did, so
+-- there's nothing here for 08's down to undo — 07's down handles the reversal.

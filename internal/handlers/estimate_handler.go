@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,7 +31,7 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input", "detail": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
 	if len(req.Items) == 0 {
@@ -126,7 +127,8 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 		estimateDate, expiryDate, subtotal, taxTotal, discount, total,
 	).Scan(&estimateID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create estimate", "detail": err.Error()})
+		log.Println("failed to create estimate:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create estimate"})
 		return
 	}
 
@@ -360,7 +362,7 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 
 	var req models.UpdateEstimateRequestDTO
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input", "detail": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
 	if len(req.Items) == 0 {
@@ -622,7 +624,8 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 		RETURNING id
 	`, companyID, userID, clientID, invoiceNumber, invDate, dueDate, subtotal, taxTotal, discount, total).Scan(&invoiceID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create invoice", "detail": err.Error()})
+		log.Println("failed to create invoice from estimate:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create invoice"})
 		return
 	}
 

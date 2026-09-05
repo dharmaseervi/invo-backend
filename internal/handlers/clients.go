@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"fmt"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -49,14 +49,11 @@ func (h *clientHandler) CreateClient(c *gin.Context) {
     `, request.Name, request.Email, request.Phone, request.Address, request.City, request.State, request.Pincode, request.CompanyID, userID)
 
 	if err != nil {
-		fmt.Println("SQL ERROR:", err)
-		c.JSON(500, gin.H{"error": "Failed to create client", "detail": err.Error()})
+		log.Println("failed to create client:", err)
+		c.JSON(500, gin.H{"error": "Failed to create client"})
 		return
 	}
 
-	fmt.Println(err)
-
-	fmt.Println("Client created for user:", err)
 	c.JSON(201, gin.H{"message": "Client created"})
 }
 

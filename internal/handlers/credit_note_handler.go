@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"database/sql"
-	"fmt"
 	"invo-server/internal/models"
 	"invo-server/internal/services"
 	"log"
@@ -26,8 +25,7 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fmt.Println("Error binding JSON:", err)
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(400, gin.H{"error": "Invalid input"})
 		return
 	}
 
@@ -56,8 +54,8 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.service.CreateTx(tx, req.CompanyID, req); err != nil {
-		fmt.Println("Error creating credit note:", err)
-		c.JSON(400, gin.H{"error": err.Error()})
+		log.Println("failed to create credit note:", err)
+		c.JSON(400, gin.H{"error": "Failed to create credit note"})
 		return
 	}
 	// 1️⃣3️⃣ Commit transaction
@@ -77,11 +75,7 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 func (h *CreditNoteHandler) GetAll(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
-	// ✅ Must read from query param
 	companyIDStr := c.Query("company_id")
-
-	// Add this debug
-	log.Printf("🏢 GetAll called with company_id: %s, user_id: %d", companyIDStr, userID)
 
 	if companyIDStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
@@ -109,7 +103,8 @@ func (h *CreditNoteHandler) GetAll(c *gin.Context) {
 
 	result, err := h.service.GetAll(companyID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Println("failed to fetch credit notes:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch credit notes"})
 		return
 	}
 
@@ -154,7 +149,5 @@ func (h *CreditNoteHandler) GetByID(c *gin.Context) {
 		c.JSON(500, gin.H{"error": "failed to commit"})
 		return
 	}
-	fmt.Println("Credit Note fetched:", result)
-	// ✅ EXACT SHAPE REQUIRED BY iOS
 	c.JSON(http.StatusOK, result)
 }

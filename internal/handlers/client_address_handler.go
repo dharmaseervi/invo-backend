@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
 	"log"
@@ -25,7 +24,7 @@ func (h *ClientAddressHandler) SaveClientAddress(c *gin.Context) {
 
 	var req models.Address
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fmt.Println(err)
+		log.Println("bind error:", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
@@ -79,7 +78,7 @@ func (h *ClientAddressHandler) SaveClientAddress(c *gin.Context) {
 
 	if err != nil {
 		log.Println("DB ERROR:", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save address"})
 		return
 	}
 

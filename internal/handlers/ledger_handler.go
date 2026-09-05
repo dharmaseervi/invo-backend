@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -57,7 +58,8 @@ func (h *LedgerHandler) GetClientLedger(c *gin.Context) {
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Println("failed to fetch client ledger:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch ledger"})
 		return
 	}
 
@@ -95,8 +97,9 @@ func (h *LedgerHandler) GetCompanyLedger(c *gin.Context) {
 		companyID,
 	)
 	if err != nil {
+		log.Println("failed to fetch company ledger:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
+			"error": "Failed to fetch ledger",
 		})
 		return
 	}

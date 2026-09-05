@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"fmt"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -67,8 +67,8 @@ func (h *expenseHandler) CreateExpense(c *gin.Context) {
     `, request.Name, request.Amount, request.Description, request.Date, request.CompanyID, userID).Scan(&expenseID)
 
 	if err != nil {
-		fmt.Println("SQL ERROR:", err)
-		c.JSON(500, gin.H{"error": "Failed to create expense", "detail": err.Error()})
+		log.Println("failed to create expense:", err)
+		c.JSON(500, gin.H{"error": "Failed to create expense"})
 		return
 	}
 
@@ -107,7 +107,7 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
     `, companyID)
 
 	if err != nil {
-		fmt.Println("Query ERROR:", err)
+		log.Println("Query ERROR:", err)
 		c.JSON(500, gin.H{"error": "Failed to fetch expenses"})
 		return
 	}
@@ -127,7 +127,7 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
 			&exp.UpdatedAt,
 		)
 		if err != nil {
-			fmt.Println("Scan ERROR:", err)
+			log.Println("Scan ERROR:", err)
 			continue
 		}
 		expenses = append(expenses, exp)
@@ -250,7 +250,7 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 	)
 
 	if err != nil {
-		fmt.Println("SQL ERROR:", err)
+		log.Println("SQL ERROR:", err)
 		c.JSON(500, gin.H{"error": "Failed to update expense"})
 		return
 	}
@@ -293,8 +293,8 @@ func (h *expenseHandler) DeleteExpense(c *gin.Context) {
 	_, err = h.db.DB.Exec(`DELETE FROM expensess WHERE id=$1`, expenseID)
 
 	if err != nil {
-		fmt.Println("SQL ERROR:", err)
-		c.JSON(500, gin.H{"error": "Failed to delete expense", "detail": err.Error()})
+		log.Println("failed to delete expense:", err)
+		c.JSON(500, gin.H{"error": "Failed to delete expense"})
 		return
 	}
 
@@ -337,7 +337,7 @@ func (h *expenseHandler) GetExpensesByDateRange(c *gin.Context) {
     `, companyID, startDate, endDate)
 
 	if err != nil {
-		fmt.Println("Query ERROR:", err)
+		log.Println("Query ERROR:", err)
 		c.JSON(500, gin.H{"error": "Failed to fetch expenses"})
 		return
 	}
@@ -357,7 +357,7 @@ func (h *expenseHandler) GetExpensesByDateRange(c *gin.Context) {
 			&exp.UpdatedAt,
 		)
 		if err != nil {
-			fmt.Println("Scan ERROR:", err)
+			log.Println("Scan ERROR:", err)
 			continue
 		}
 		expenses = append(expenses, exp)
@@ -405,7 +405,7 @@ func (h *expenseHandler) GetExpenseStats(c *gin.Context) {
     `, companyID).Scan(&totalAmount, &expenseCount, &avgAmount)
 
 	if err != nil {
-		fmt.Println("Query ERROR:", err)
+		log.Println("Query ERROR:", err)
 		c.JSON(500, gin.H{"error": "Failed to fetch expense stats"})
 		return
 	}

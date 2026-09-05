@@ -47,6 +47,8 @@ type Config struct {
 		KeyBase64  string // the .p8 file content, base64-encoded
 		Production bool   // false = APNs sandbox (Debug builds), true = production APNs
 	}
+
+	OverdueCheckInterval time.Duration
 }
 
 func Load() *Config {
@@ -94,6 +96,11 @@ func Load() *Config {
 	config.APNs.BundleID = getEnv("APNS_BUNDLE_ID", "")
 	config.APNs.KeyBase64 = getEnv("APNS_KEY_BASE64", "")
 	config.APNs.Production = getEnv("APNS_PRODUCTION", "false") == "true"
+
+	// How often the server checks for invoices that just became overdue.
+	// Invoices don't cross their due date more than once a day, so a long
+	// default is fine — override with e.g. "1m" locally to test quickly.
+	config.OverdueCheckInterval = getEnvAsDuration("OVERDUE_CHECK_INTERVAL", 6*time.Hour)
 
 	return config
 }

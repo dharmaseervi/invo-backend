@@ -100,6 +100,11 @@ func (s *PushService) SendToUser(userID int, title, body string) {
 			tokens = append(tokens, t)
 		}
 	}
+	log.Printf("push: sending %q to user %d — %d device token(s) on file", title, userID, len(tokens))
+	if len(tokens) == 0 {
+		log.Println("push: no device tokens registered for this user — nothing to send")
+		return
+	}
 
 	for _, deviceToken := range tokens {
 		notification := &apns2.Notification{
@@ -110,8 +115,14 @@ func (s *PushService) SendToUser(userID int, title, body string) {
 
 		res, err := s.client.Push(notification)
 		if err != nil {
-			log.Println("push: send failed:", err)
+			log.Println("push: send failed (transport error):", err)
 			continue
+		}
+
+		if res.Sent() {
+			log.Printf("push: delivered to APNs, id=%s", res.ApnsID)
+		} else {
+			log.Printf("push: rejected by APNs — status=%d reason=%s", res.StatusCode, res.Reason)
 		}
 
 		// BadDeviceToken / Unregistered → the app was deleted or the token rotated; stop

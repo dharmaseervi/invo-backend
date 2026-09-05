@@ -3,6 +3,7 @@ package handlers
 import (
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
+	"log"
 
 	"github.com/gin-gonic/gin"
 )
@@ -52,7 +53,8 @@ func (h *CompanyHandler) CreateCompany(c *gin.Context) {
 	).Scan(&newID)
 
 	if err != nil {
-		c.JSON(500, gin.H{"error": "Database error", "detail": err.Error()})
+		log.Println("failed to create company:", err)
+		c.JSON(500, gin.H{"error": "Failed to create company"})
 		return
 	}
 

@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS estimate_items CASCADE;
+DROP TABLE IF EXISTS estimates CASCADE;
+DROP TABLE IF EXISTS estimate_counters CASCADE;

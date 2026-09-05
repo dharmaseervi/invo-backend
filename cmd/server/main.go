@@ -65,6 +65,12 @@ func main() {
 	r.GET("/", func(c *gin.Context) {
 		c.File("./static/index.html")
 	})
+	r.GET("/privacy", func(c *gin.Context) {
+		c.File("./static/privacy.html")
+	})
+	r.GET("/terms", func(c *gin.Context) {
+		c.File("./static/terms.html")
+	})
 	r.Static("/screenshots", "./public/screenshots")
 	// Health check for cron keep-alive
 	r.GET("/api/v1/health", func(c *gin.Context) {

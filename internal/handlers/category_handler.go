@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"fmt"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -69,7 +69,6 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
     `, companyID, userID).Scan(&exists)
 
 	if !exists {
-		fmt.Println("Unauthorized access attempt by user:", userID)
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized company access"})
 		return
 	}
@@ -82,7 +81,7 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
     `, companyID)
 
 	if err != nil {
-		fmt.Println("SQL ERROR:", err)
+		log.Println("failed to fetch categories:", err)
 		c.JSON(500, gin.H{"error": "Failed to fetch categories"})
 		return
 	}
@@ -99,8 +98,6 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
 			categories = append(categories, cat)
 		}
 	}
-
-	fmt.Println("Categories fetched for user:", categories)
 
 	c.JSON(200, gin.H{
 		"categories": categories,

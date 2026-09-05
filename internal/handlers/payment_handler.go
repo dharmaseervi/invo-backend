@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"fmt"
+	"log"
 	"net/http"
 
 	database "invo-server/internal/db"
@@ -29,8 +29,7 @@ func (h *PaymentHandler) RecordPayment(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		fmt.Println("SQL ERROR:", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
 
@@ -57,8 +56,8 @@ func (h *PaymentHandler) RecordPayment(c *gin.Context) {
 
 	err = h.service.RecordPaymentTx(tx, companyID, req.ClientID, req)
 	if err != nil {
-		fmt.Println("SQL ERROR:", err)
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		log.Println("failed to record payment:", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to record payment"})
 		return
 	}
 

@@ -1,0 +1,3 @@
+-- This migration only backfilled blank state/gst_number values that had no data to
+-- begin with — there is nothing meaningful to revert to, and no way to tell which
+-- rows were filled in by it versus already populated. Intentionally a no-op.

@@ -1025,7 +1025,8 @@ func (h *InvoiceHandler) GetInvoicesByClientID(c *gin.Context) {
 	`, clientID)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Println("failed to fetch invoices for client:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch invoices"})
 		return
 	}
 	defer rows.Close()
@@ -1048,7 +1049,8 @@ func (h *InvoiceHandler) GetInvoicesByClientID(c *gin.Context) {
 			&inv.CreatedAt,
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			log.Println("failed to scan invoice row:", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch invoices"})
 			return
 		}
 		invoices = append(invoices, inv)
@@ -1094,6 +1096,42 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	if status != "draft" {
 		c.JSON(400, gin.H{"error": "invoice already issued"})
 		return
+	}
+
+	// 0️⃣ Warn (but don't block) if issuing would oversell any item — the
+	// caller can re-request with ?force=true to proceed anyway.
+	force := c.Query("force") == "true"
+	if !force {
+		overRows, overErr := tx.Query(`
+			SELECT it.name, it.quantity, ii.qty
+			FROM items it
+			JOIN invoice_items ii ON ii.item_id = it.id
+			WHERE ii.invoice_id = $1 AND it.quantity < ii.qty
+		`, invoiceID)
+		if overErr != nil {
+			c.JSON(500, gin.H{"error": "failed to check stock"})
+			return
+		}
+		var oversold []gin.H
+		for overRows.Next() {
+			var name string
+			var available, requested int
+			if err := overRows.Scan(&name, &available, &requested); err == nil {
+				oversold = append(oversold, gin.H{
+					"name": name, "available": available, "requested": requested,
+				})
+			}
+		}
+		overRows.Close()
+
+		if len(oversold) > 0 {
+			c.JSON(409, gin.H{
+				"error":   "insufficient_stock",
+				"message": "Issuing this invoice will oversell one or more items",
+				"items":   oversold,
+			})
+			return
+		}
 	}
 
 	// 1️⃣ Update invoice

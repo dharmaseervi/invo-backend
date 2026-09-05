@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -90,11 +91,68 @@ func AuthMiddleware(jwtSecret []byte) gin.HandlerFunc {
 	}
 }
 
-// RateLimiter middleware to prevent brute force attacks
+// visitor tracks one client IP's limiter and when it was last seen, so stale
+// entries can be swept instead of growing the map forever.
+type visitor struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
+// ipRateLimiter gives every client IP its own token bucket. A single shared
+// limiter (the old behavior) means one busy or abusive IP throttles every
+// other user of the API; per-IP limiting only punishes the IP that earns it.
+type ipRateLimiter struct {
+	mu       sync.Mutex
+	visitors map[string]*visitor
+	r        rate.Limit
+	burst    int
+}
+
+func newIPRateLimiter(r rate.Limit, burst int) *ipRateLimiter {
+	l := &ipRateLimiter{
+		visitors: make(map[string]*visitor),
+		r:        r,
+		burst:    burst,
+	}
+	go l.cleanupStale()
+	return l
+}
+
+func (l *ipRateLimiter) getLimiter(ip string) *rate.Limiter {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	v, exists := l.visitors[ip]
+	if !exists {
+		limiter := rate.NewLimiter(l.r, l.burst)
+		l.visitors[ip] = &visitor{limiter: limiter, lastSeen: time.Now()}
+		return limiter
+	}
+	v.lastSeen = time.Now()
+	return v.limiter
+}
+
+// cleanupStale drops any IP that hasn't made a request in 10 minutes, so a
+// long-running server doesn't accumulate one entry per IP forever.
+func (l *ipRateLimiter) cleanupStale() {
+	for {
+		time.Sleep(5 * time.Minute)
+		l.mu.Lock()
+		for ip, v := range l.visitors {
+			if time.Since(v.lastSeen) > 10*time.Minute {
+				delete(l.visitors, ip)
+			}
+		}
+		l.mu.Unlock()
+	}
+}
+
+// RateLimiter middleware to prevent brute force attacks — 5 requests/sec per
+// client IP with a burst of 10, tracked independently per IP.
 func RateLimiter() gin.HandlerFunc {
-	limiter := rate.NewLimiter(rate.Every(time.Second), 10)
+	limiter := newIPRateLimiter(rate.Limit(5), 10)
 	return func(c *gin.Context) {
-		if !limiter.Allow() {
+		if !limiter.getLimiter(c.ClientIP()).Allow() {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many requests"})
 			c.Abort()
 			return

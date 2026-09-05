@@ -29,6 +29,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	estimateHandler := handlers.NewEstimateHandler(db)
 	pushService := services.NewPushService(db.DB, cfg)
 	deviceTokenHandler := handlers.NewDeviceTokenHandler(pushService)
+	services.StartOverdueChecker(db.DB, pushService, cfg.OverdueCheckInterval)
 
 	ledgerService := services.NewLedgerService(db.DB)
 	ledgerHandler := handlers.NewLedgerHandler(ledgerService, db.DB)
@@ -74,6 +75,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// Push notification device tokens
 		protected.POST("/device-tokens", deviceTokenHandler.Register)
 		protected.DELETE("/device-tokens", deviceTokenHandler.Unregister)
+		protected.POST("/push/test", deviceTokenHandler.SendTest)
 
 		// Company routes
 		protected.POST("/companies", companyHandler.CreateCompany)

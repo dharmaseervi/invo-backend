@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"database/sql"
-	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -35,7 +35,8 @@ func (h *CompanyBankHandler) List(c *gin.Context) {
 
 	banks, err := services.GetCompanyBanks(h.db, id, c)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Println("failed to fetch company banks:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bank accounts"})
 		return
 	}
 
@@ -45,8 +46,7 @@ func (h *CompanyBankHandler) Create(c *gin.Context) {
 	var bank models.CompanyBank
 
 	if err := c.ShouldBindJSON(&bank); err != nil {
-		fmt.Println("Error binding JSON:", err)
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(400, gin.H{"error": "Invalid input"})
 		return
 	}
 
@@ -62,8 +62,8 @@ func (h *CompanyBankHandler) Create(c *gin.Context) {
 	}
 
 	if err := services.CreateCompanyBank(h.db, &bank); err != nil {
-		fmt.Println("Error creating company bank:", err)
-		c.JSON(500, gin.H{"error": err.Error()})
+		log.Println("failed to create company bank:", err)
+		c.JSON(500, gin.H{"error": "Failed to save bank account"})
 		return
 	}
 
@@ -85,14 +85,15 @@ func (h *CompanyBankHandler) Update(c *gin.Context) {
 
 	var bank models.CompanyBank
 	if err := c.ShouldBindJSON(&bank); err != nil {
-		c.JSON(400, gin.H{"error": err.Error()})
+		c.JSON(400, gin.H{"error": "Invalid input"})
 		return
 	}
 
 	bank.ID = id
 
 	if err := services.UpdateCompanyBank(h.db, &bank); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		log.Println("failed to update company bank:", err)
+		c.JSON(500, gin.H{"error": "Failed to update bank account"})
 		return
 	}
 

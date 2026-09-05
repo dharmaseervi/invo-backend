@@ -1,0 +1,1 @@
+ALTER TABLE invoices ADD COLUMN IF NOT EXISTS overdue_notified BOOLEAN NOT NULL DEFAULT false;
