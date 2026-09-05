@@ -36,7 +36,7 @@ func (g *ModernInvoiceGenerator) Generate() ([]byte, error) {
 		pdf.SetFont("Helvetica", "I", 7)
 		pdf.SetTextColor(150, 150, 150)
 		pdf.CellFormat(pageW, 5,
-			fmt.Sprintf("Page %d — %s", pdf.PageNo(), g.data.Company.Name),
+			fmt.Sprintf("Page %d - %s", pdf.PageNo(), g.data.Company.Name),
 			"", 0, "C", false, 0, "")
 		pdf.SetTextColor(0, 0, 0)
 	})

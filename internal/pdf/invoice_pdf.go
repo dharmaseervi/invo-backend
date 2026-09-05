@@ -97,7 +97,7 @@ func (g *TallyInvoiceGenerator) Generate() ([]byte, error) {
 		g.pdf.SetFont("Helvetica", "I", 7)
 		g.pdf.SetTextColor(150, 150, 150)
 		g.pdf.CellFormat(pageW, 5,
-			fmt.Sprintf("Page %d — %s", g.pdf.PageNo(), g.data.Company.Name),
+			fmt.Sprintf("Page %d - %s", g.pdf.PageNo(), g.data.Company.Name),
 			"", 0, "C", false, 0, "")
 		g.pdf.SetTextColor(0, 0, 0)
 	})

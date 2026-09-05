@@ -20,8 +20,8 @@ func FetchInvoicePDFData(
 	err := db.QueryRow(`
 		SELECT
 			i.invoice_number,
-			i.invoice_date,
-			i.due_date,
+			TO_CHAR(i.invoice_date, 'DD Mon YYYY'),
+			TO_CHAR(i.due_date, 'DD Mon YYYY'),
 			i.subtotal,
 			i.tax,
 			i.total,

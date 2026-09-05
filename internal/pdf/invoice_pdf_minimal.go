@@ -276,7 +276,7 @@ func (g *MinimalInvoiceGenerator) drawFooter(y float64) float64 {
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetTextColor(140, 140, 140)
 	pdf.SetXY(mid, y+23)
-	pdf.CellFormat(pageW/2-10, 4, "Authorised Signatory — "+g.data.Company.Name, "", 0, "L", false, 0, "")
+	pdf.CellFormat(pageW/2-10, 4, "Authorised Signatory - "+g.data.Company.Name, "", 0, "L", false, 0, "")
 	pdf.SetTextColor(0, 0, 0)
 
 	y2 := y + 30

@@ -19,8 +19,8 @@ func FetchEstimatePDFData(db *sql.DB, estimateID int) (pdf.InvoicePDFData, error
 	err := db.QueryRow(`
 		SELECT
 			e.estimate_number,
-			e.estimate_date,
-			COALESCE(e.expiry_date::text, ''),
+			TO_CHAR(e.estimate_date, 'DD Mon YYYY'),
+			COALESCE(TO_CHAR(e.expiry_date, 'DD Mon YYYY'), ''),
 			e.subtotal,
 			e.tax,
 			e.discount,
