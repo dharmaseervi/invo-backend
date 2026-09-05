@@ -100,6 +100,33 @@ func (s *EmailService) SendInvoiceEmail(
 	return s.send(toEmail, subject, html, attachments)
 }
 
+func (s *EmailService) SendPaymentReminderEmail(
+	toEmail, toName, invoiceNumber, dueDate string,
+	amountDue float64,
+	invoicePDF []byte,
+) error {
+	subject := fmt.Sprintf("Payment reminder: Invoice %s from %s", invoiceNumber, s.fromName)
+
+	html := fmt.Sprintf(`
+		<h2>Payment reminder</h2>
+		<p>Dear %s,</p>
+		<p>This is a friendly reminder that invoice <strong>%s</strong> has an outstanding balance of
+		<strong>₹%.2f</strong>, due on <strong>%s</strong>.</p>
+		<p>The invoice is attached for your reference. Please let us know if you have any questions.</p>
+		<br/>
+		<p>Regards,<br/>%s</p>
+	`, toName, invoiceNumber, amountDue, dueDate, s.fromName)
+
+	attachments := []resendAttachment{
+		{
+			Filename: fmt.Sprintf("invoice-%s.pdf", invoiceNumber),
+			Content:  base64.StdEncoding.EncodeToString(invoicePDF),
+		},
+	}
+
+	return s.send(toEmail, subject, html, attachments)
+}
+
 func (s *EmailService) SendOTPEmail(toEmail, code string) error {
 	subject := "Your Invo Billing Login Code"
 

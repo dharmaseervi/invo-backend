@@ -39,6 +39,14 @@ type Config struct {
 		FromEmail    string
 		FromName     string
 	}
+
+	APNs struct {
+		KeyID      string // AuthKey_XXXXXXXXXX.p8 — the XXXXXXXXXX part
+		TeamID     string // Apple Developer Team ID
+		BundleID   string // e.g. dharma.Invo-Billing
+		KeyBase64  string // the .p8 file content, base64-encoded
+		Production bool   // false = APNs sandbox (Debug builds), true = production APNs
+	}
 }
 
 func Load() *Config {
@@ -80,6 +88,12 @@ func Load() *Config {
 	config.Email.ResendAPIKey = getEnv("RESEND_API_KEY", "")
 	config.Email.FromEmail = getEnv("EMAIL_FROM", "")
 	config.Email.FromName = getEnv("EMAIL_FROM_NAME", "Invoice App")
+
+	config.APNs.KeyID = getEnv("APNS_KEY_ID", "")
+	config.APNs.TeamID = getEnv("APNS_TEAM_ID", "")
+	config.APNs.BundleID = getEnv("APNS_BUNDLE_ID", "")
+	config.APNs.KeyBase64 = getEnv("APNS_KEY_BASE64", "")
+	config.APNs.Production = getEnv("APNS_PRODUCTION", "false") == "true"
 
 	return config
 }

@@ -63,7 +63,7 @@ func (g *ModernInvoiceGenerator) drawHeader(y float64) float64 {
 	pdf.SetFont("Helvetica", "B", 22)
 	pdf.SetTextColor(accentR, accentG, accentB)
 	pdf.SetXY(marginL, y)
-	pdf.Cell(pageW/2, 12, "Invoice")
+	pdf.Cell(pageW/2, 12, g.data.Invoice.HeaderTitle("Invoice"))
 
 	pdf.SetFont("Helvetica", "", 9)
 	pdf.SetTextColor(140, 140, 140)

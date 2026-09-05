@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,10 +20,11 @@ import (
 type InvoiceHandler struct {
 	db            *database.Database
 	LedgerService *services.LedgerService
+	PushService   *services.PushService
 }
 
-func NewInvoiceHandler(db *database.Database, ledgerService *services.LedgerService) *InvoiceHandler {
-	return &InvoiceHandler{db: db, LedgerService: ledgerService}
+func NewInvoiceHandler(db *database.Database, ledgerService *services.LedgerService, pushService *services.PushService) *InvoiceHandler {
+	return &InvoiceHandler{db: db, LedgerService: ledgerService, PushService: pushService}
 }
 
 func insertInvoiceAddress(
@@ -182,7 +184,16 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		// insert invoice_items with lineTotal
 	}
 
-	grandTotal := subtotal + taxTotal
+	preDiscountTotal := subtotal + taxTotal
+
+	invoiceDiscount := req.Discount
+	if invoiceDiscount < 0 {
+		invoiceDiscount = 0
+	}
+	if invoiceDiscount > preDiscountTotal {
+		invoiceDiscount = preDiscountTotal
+	}
+	grandTotal := preDiscountTotal - invoiceDiscount
 
 	// 4️⃣ Parse dates
 	invDate, err := time.Parse("2006-01-02", req.InvoiceDate)
@@ -242,12 +253,13 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 			due_date,
 			subtotal,
 			tax,
+			discount,
 			total,
 			status,
 			paid_amount,
 			remaining_amount
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',0,$9)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',0,$10)
 		RETURNING id
 	`,
 		req.CompanyID,
@@ -258,6 +270,7 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		dueDate,
 		subtotal,
 		taxTotal,
+		invoiceDiscount,
 		grandTotal,
 	).Scan(&invoiceID)
 
@@ -465,7 +478,15 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 		taxTotal += lineTax
 	}
 
-	total := subtotal + taxTotal
+	preDiscountTotal := subtotal + taxTotal
+	invoiceDiscount := req.Discount
+	if invoiceDiscount < 0 {
+		invoiceDiscount = 0
+	}
+	if invoiceDiscount > preDiscountTotal {
+		invoiceDiscount = preDiscountTotal
+	}
+	total := preDiscountTotal - invoiceDiscount
 
 	// 5️⃣ Parse dates
 	invDate, err := time.Parse("2006-01-02", req.InvoiceDate)
@@ -503,16 +524,18 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 			due_date = $3,
 			subtotal = $4,
 			tax = $5,
-			total = $6,
-			remaining_amount = $6,
+			discount = $6,
+			total = $7,
+			remaining_amount = $7,
 			updated_at = NOW()
-		WHERE id = $7
+		WHERE id = $8
 	`,
 		req.ClientID,
 		invDate,
 		dueDate,
 		subtotal,
 		taxTotal,
+		invoiceDiscount,
 		total,
 		invoiceID,
 	)
@@ -723,6 +746,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		invoiceDate, dueDate    time.Time
 		createdAt               time.Time
 		subtotal, tax, total    float64
+		discount                float64
 		paidAmount, remaining   float64
 		daysOverdue             int
 		isOverdue               bool
@@ -738,6 +762,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 			i.due_date,
 			i.subtotal,
 			i.tax,
+			i.discount,
 			i.total,
 			i.paid_amount,
 			i.remaining_amount,
@@ -758,6 +783,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		&dueDate,
 		&subtotal,
 		&tax,
+		&discount,
 		&total,
 		&paidAmount,
 		&remaining,
@@ -840,6 +866,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		"due_date":         dueDate.Format("2006-01-02"),
 		"subtotal":         subtotal,
 		"tax":              tax,
+		"discount":         discount,
 		"total":            total,
 		"paid_amount":      paidAmount,
 		"remaining_amount": remaining,
@@ -1097,7 +1124,47 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 		return
 	}
 
+	// 3️⃣ Deduct stock — only now, since a draft might never be issued.
+	// Negative stock is allowed (many items are services with no real inventory);
+	// this only tracks quantity, it never blocks issuing.
+	_, err = tx.Exec(`
+		UPDATE items it
+		SET quantity = it.quantity - ii.qty
+		FROM invoice_items ii
+		WHERE ii.invoice_id = $1 AND it.id = ii.item_id
+	`, invoiceID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "failed to update stock"})
+		return
+	}
+
+	// Check for items that just crossed into low/out-of-stock, to notify after commit —
+	// never notify about a transaction that might still roll back.
+	var lowStockItems []string
+	lowStockRows, lowStockErr := tx.Query(`
+		SELECT it.name, it.quantity
+		FROM items it
+		JOIN invoice_items ii ON ii.item_id = it.id
+		WHERE ii.invoice_id = $1
+		  AND it.low_stock_alert > 0
+		  AND it.quantity <= it.low_stock_alert
+	`, invoiceID)
+	if lowStockErr == nil {
+		for lowStockRows.Next() {
+			var name string
+			var qty int
+			if lowStockRows.Scan(&name, &qty) == nil {
+				lowStockItems = append(lowStockItems, fmt.Sprintf("%s (%d left)", name, qty))
+			}
+		}
+		lowStockRows.Close()
+	}
+
 	tx.Commit()
+
+	if len(lowStockItems) > 0 {
+		h.PushService.SendToUser(userID, "Low stock", strings.Join(lowStockItems, ", "))
+	}
 
 	c.JSON(200, gin.H{"message": "Invoice issued successfully"})
 }

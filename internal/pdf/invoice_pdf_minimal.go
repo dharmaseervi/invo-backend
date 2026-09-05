@@ -54,7 +54,7 @@ func (g *MinimalInvoiceGenerator) drawHeader(y float64) float64 {
 
 	pdf.SetFont("Helvetica", "", 26)
 	pdf.SetXY(marginL, y)
-	pdf.Cell(pageW/2, 10, "Invoice")
+	pdf.Cell(pageW/2, 10, g.data.Invoice.HeaderTitle("Invoice"))
 
 	pdf.SetFont("Helvetica", "", 8)
 	pdf.SetTextColor(150, 150, 150)

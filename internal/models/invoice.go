@@ -16,6 +16,7 @@ type InvoiceRequestDTO struct {
 	InvoiceDate string               `json:"invoice_date"` // YYYY-MM-DD
 	DueDate     string               `json:"due_date"`
 	Notes       *string              `json:"notes"`
+	Discount    float64              `json:"discount"` // flat amount off the post-tax total
 	Items       []InvoiceItemRequest `json:"items"`
 }
 
@@ -48,5 +49,6 @@ type UpdateInvoiceRequestDTO struct {
 	ClientID    int                  `json:"client_id"`
 	InvoiceDate string               `json:"invoice_date"`
 	DueDate     string               `json:"due_date"`
+	Discount    float64              `json:"discount"`
 	Items       []InvoiceItemRequest `json:"items"`
 }

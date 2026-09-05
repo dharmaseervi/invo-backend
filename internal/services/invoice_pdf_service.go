@@ -25,6 +25,8 @@ func FetchInvoicePDFData(
 			i.subtotal,
 			i.tax,
 			i.total,
+			i.paid_amount,
+			i.remaining_amount,
 			COALESCE(i.notes, ''),
 			c.name
 		FROM invoices i
@@ -37,6 +39,8 @@ func FetchInvoicePDFData(
 		&data.Invoice.Subtotal,
 		&data.Invoice.Tax,
 		&data.Invoice.Total,
+		&data.Invoice.AmountPaid,
+		&data.Invoice.AmountDue,
 		&data.Invoice.Notes,
 		&data.Company.Name,
 	)

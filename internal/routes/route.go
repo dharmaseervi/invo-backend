@@ -24,10 +24,15 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	invoicePDFHandler := handlers.NewInvoicePDFHandler(db)
 	dashboard := handlers.NewDashboardHandler(db)
 	companyBankHandlerss := handlers.NewCompanyBankHandler(db.DB)
+	gstReportHandler := handlers.NewGSTReportHandler(db.DB)
+	agingReportHandler := handlers.NewAgingReportHandler(db.DB)
+	estimateHandler := handlers.NewEstimateHandler(db)
+	pushService := services.NewPushService(db.DB, cfg)
+	deviceTokenHandler := handlers.NewDeviceTokenHandler(pushService)
 
 	ledgerService := services.NewLedgerService(db.DB)
 	ledgerHandler := handlers.NewLedgerHandler(ledgerService, db.DB)
-	invoiceHandler := handlers.NewInvoiceHandler(db, ledgerService)
+	invoiceHandler := handlers.NewInvoiceHandler(db, ledgerService, pushService)
 	creditNoteService := services.NewCreditNoteService(db.DB, ledgerService)
 
 	paymentService := services.NewPaymentService(db.DB, ledgerService)
@@ -66,6 +71,10 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/logout", authHandler.Logout)
 		protected.GET("/profile", userHandler.GetUserProfile)
 
+		// Push notification device tokens
+		protected.POST("/device-tokens", deviceTokenHandler.Register)
+		protected.DELETE("/device-tokens", deviceTokenHandler.Unregister)
+
 		// Company routes
 		protected.POST("/companies", companyHandler.CreateCompany)
 		protected.GET("/companies", companyHandler.GetMyCompanies)
@@ -98,6 +107,16 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/invoices/:id/issue", invoiceHandler.IssueInvoice)
 		protected.PUT("/invoices/:id/update", invoiceHandler.UpdateInvoice) // 👈 REQUIRED
 
+		// Estimate / Quotation routes
+		protected.POST("/estimates", estimateHandler.CreateEstimate)
+		protected.GET("/estimates", estimateHandler.GetEstimates)
+		protected.GET("/estimates/number-preview", estimateHandler.GetEstimateNumberPreview)
+		protected.GET("/estimates/:id", estimateHandler.GetEstimateByID)
+		protected.PUT("/estimates/:id/update", estimateHandler.UpdateEstimate)
+		protected.POST("/estimates/:id/status", estimateHandler.UpdateEstimateStatus)
+		protected.POST("/estimates/:id/convert", estimateHandler.ConvertToInvoice)
+		protected.GET("/estimates/:id/pdf", estimateHandler.GetEstimatePDF)
+
 		// Expense routes ← Add these lines
 		protected.POST("/expenses", expenseHandler.CreateExpense)
 		protected.GET("/expenses/:id", expenseHandler.GetExpenseByID)
@@ -122,6 +141,10 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 
 		// Dashboard routes
 		protected.GET("/dashboard", dashboard.GetDashboard)
+
+		// GST reports
+		protected.GET("/companies/:companyId/reports/gstr1", gstReportHandler.GetGSTReport)
+		protected.GET("/companies/:companyId/reports/aging", agingReportHandler.GetAgingReport)
 
 		protected.GET("/companies/:companyId/banks", companyBankHandlerss.List)
 		protected.POST("/companies/:companyId/banks", companyBankHandlerss.Create)

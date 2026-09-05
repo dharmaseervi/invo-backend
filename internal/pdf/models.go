@@ -1,5 +1,14 @@
 package pdf
 
+// HeaderTitle returns the printed document title — "TAX INVOICE"/"Invoice" by
+// default, or the explicit DocType (e.g. "QUOTATION") when set.
+func (i Invoice) HeaderTitle(defaultTitle string) string {
+	if i.DocType != "" {
+		return i.DocType
+	}
+	return defaultTitle
+}
+
 type InvoicePDFData struct {
 	Company        Company
 	CompanyAddress Address
@@ -41,6 +50,9 @@ type Invoice struct {
 	AmountDue     float64
 	TaxRate       float64
 	Discount      float64
+	// DocType overrides the printed header ("TAX INVOICE" by default) —
+	// e.g. "QUOTATION" when this data is used to render an estimate.
+	DocType string
 }
 
 type InvoiceItem struct {

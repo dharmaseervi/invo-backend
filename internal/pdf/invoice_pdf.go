@@ -85,7 +85,7 @@ func (g *TallyInvoiceGenerator) Generate() ([]byte, error) {
 			g.pdf.Rect(marginL, marginT, pageW, 8, "F")
 			g.pdf.SetXY(marginL, marginT)
 			g.pdf.CellFormat(pageW, 8,
-				fmt.Sprintf("TAX INVOICE - %s (Continued...)", g.data.Invoice.InvoiceNumber),
+				fmt.Sprintf("%s - %s (Continued...)", g.data.Invoice.HeaderTitle("TAX INVOICE"), g.data.Invoice.InvoiceNumber),
 				"", 1, "C", false, 0, "")
 			g.pdf.SetTextColor(0, 0, 0)
 		}
@@ -130,7 +130,7 @@ func (g *TallyInvoiceGenerator) drawHeader(y float64) float64 {
 	pdf.SetFont("Helvetica", "B", 12)
 	pdf.SetTextColor(255, 255, 255)
 	pdf.SetXY(marginL, y)
-	pdf.CellFormat(pageW, h, "TAX INVOICE", "", 0, "C", false, 0, "")
+	pdf.CellFormat(pageW, h, g.data.Invoice.HeaderTitle("TAX INVOICE"), "", 0, "C", false, 0, "")
 
 	pdf.SetFont("Helvetica", "", 7)
 	pdf.SetTextColor(180, 180, 180)

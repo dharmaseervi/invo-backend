@@ -32,8 +32,9 @@ func (h *EmailHandler) SendInvoiceEmail(c *gin.Context) {
 	}
 
 	var req struct {
-		ToEmail string `json:"to_email" binding:"required"`
-		ToName  string `json:"to_name" binding:"required"`
+		ToEmail  string `json:"to_email" binding:"required"`
+		ToName   string `json:"to_name" binding:"required"`
+		Reminder bool   `json:"reminder"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -64,17 +65,32 @@ func (h *EmailHandler) SendInvoiceEmail(c *gin.Context) {
 		return
 	}
 
-	err = h.emailService.SendInvoiceEmail(
-		req.ToEmail,
-		req.ToName,
-		data.Invoice.InvoiceNumber,
-		pdfBytes,
-	)
+	if req.Reminder {
+		err = h.emailService.SendPaymentReminderEmail(
+			req.ToEmail,
+			req.ToName,
+			data.Invoice.InvoiceNumber,
+			data.Invoice.DueDate,
+			data.Invoice.AmountDue,
+			pdfBytes,
+		)
+	} else {
+		err = h.emailService.SendInvoiceEmail(
+			req.ToEmail,
+			req.ToName,
+			data.Invoice.InvoiceNumber,
+			pdfBytes,
+		)
+	}
 	if err != nil {
 		log.Println("EMAIL ERROR:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send email"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Invoice sent successfully to " + req.ToEmail})
+	message := "Invoice sent successfully to " + req.ToEmail
+	if req.Reminder {
+		message = "Reminder sent to " + req.ToEmail
+	}
+	c.JSON(http.StatusOK, gin.H{"message": message})
 }
