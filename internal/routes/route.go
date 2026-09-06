@@ -93,6 +93,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 
 		// Item routes
 		protected.POST("/items", itemHandler.CreateItem)
+		protected.PUT("/items/:itemId", itemHandler.UpdateItem)
 		protected.GET("/items/:companyId/all", itemHandler.GetItems)
 		protected.GET("/item/:itemId/one", itemHandler.GetItemByID)
 

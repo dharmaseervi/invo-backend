@@ -145,6 +145,54 @@ WHERE company_id = $1
 	c.JSON(200, gin.H{"items": items})
 }
 
+// UpdateItem handles editing an existing item (name, stock, pricing, etc.)
+func (h *itemHandler) UpdateItem(c *gin.Context) {
+	itemID := c.Param("itemId")
+	userID := c.GetInt("user_id")
+
+	var request models.Item
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	result, err := h.db.DB.Exec(`
+		UPDATE items SET
+			name = $1, category_id = $2, sku = $3, unit = $4,
+			description = $5, cost_price = $6, price = $7, quantity = $8,
+			low_stock_alert = $9, tax_rate = $10, hsn_code = $11, updated_at = NOW()
+		WHERE id = $12 AND user_id = $13
+	`,
+		request.Name,
+		request.CategoryID,
+		request.SKU,
+		request.Unit,
+		request.Description,
+		request.CostPrice,
+		request.Price,
+		request.Quantity,
+		request.LowStockAlert,
+		request.TaxRate,
+		request.HSNCode,
+		itemID,
+		userID,
+	)
+
+	if err != nil {
+		log.Println("failed to update item:", err)
+		c.JSON(500, gin.H{"error": "Failed to update item"})
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Item not found or unauthorized"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Item updated successfully"})
+}
+
 func (h *itemHandler) GetItemByID(c *gin.Context) {
 	itemID := c.Param("itemId")
 	userID := c.GetInt("user_id")

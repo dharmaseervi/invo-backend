@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
 	"log"
@@ -43,9 +44,9 @@ func (h *CategoryHandler) CreateCategory(c *gin.Context) {
 
 	// Insert category
 	_, err := h.db.DB.Exec(`
-        INSERT INTO categories (name, user_id, company_id)
-        VALUES ($1, $2, $3)
-    `, request.Name, userID, request.CompanyID)
+        INSERT INTO categories (name, user_id, company_id, default_hsn_code, default_tax_rate)
+        VALUES ($1, $2, $3, $4, $5)
+    `, request.Name, userID, request.CompanyID, request.DefaultHSNCode, request.DefaultTaxRate)
 
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to create category"})
@@ -74,7 +75,7 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
 	}
 
 	rows, err := h.db.DB.Query(`
-        SELECT id, name, user_id, company_id
+        SELECT id, name, user_id, company_id, default_hsn_code, default_tax_rate
         FROM categories
         WHERE company_id = $1
         ORDER BY id DESC
@@ -91,10 +92,18 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
 
 	for rows.Next() {
 		var cat models.Category
+		var hsn sql.NullString
+		var taxRate sql.NullFloat64
 		if err := rows.Scan(
 			&cat.ID, &cat.Name, &cat.UserID,
-			&cat.CompanyID,
+			&cat.CompanyID, &hsn, &taxRate,
 		); err == nil {
+			if hsn.Valid {
+				cat.DefaultHSNCode = &hsn.String
+			}
+			if taxRate.Valid {
+				cat.DefaultTaxRate = &taxRate.Float64
+			}
 			categories = append(categories, cat)
 		}
 	}
