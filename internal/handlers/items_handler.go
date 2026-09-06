@@ -3,10 +3,13 @@ package handlers
 import (
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
+	"invo-server/internal/services"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 type itemHandler struct {
@@ -15,6 +18,15 @@ type itemHandler struct {
 
 func NewItemHandler(db *database.Database) *itemHandler {
 	return &itemHandler{db: db}
+}
+
+// isDuplicateSKU reports whether err is a violation of the (company_id, sku)
+// unique index — i.e. this SKU is already used by another item in the company.
+func isDuplicateSKU(err error) bool {
+	if pqErr, ok := err.(*pq.Error); ok {
+		return pqErr.Code == "23505" && pqErr.Constraint == "items_company_id_sku_unique"
+	}
+	return false
 }
 
 // CreateItem handles creating a new item
@@ -80,6 +92,10 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 	)
 
 	if err != nil {
+		if isDuplicateSKU(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "This SKU is already used by another item"})
+			return
+		}
 		log.Println("failed to create item:", err)
 		c.JSON(500, gin.H{"error": "Failed to create item"})
 		return
@@ -156,6 +172,14 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 		return
 	}
 
+	// Read the current quantity/company first so a manual stock change can be
+	// logged to the audit trail — silently overwriting quantity with no record
+	// of why is exactly the gap this closes.
+	var previousQuantity, companyID int
+	_ = h.db.DB.QueryRow(`
+		SELECT quantity, company_id FROM items WHERE id = $1 AND user_id = $2
+	`, itemID, userID).Scan(&previousQuantity, &companyID)
+
 	result, err := h.db.DB.Exec(`
 		UPDATE items SET
 			name = $1, category_id = $2, sku = $3, unit = $4,
@@ -179,12 +203,26 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 	)
 
 	if err != nil {
+		if isDuplicateSKU(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "This SKU is already used by another item"})
+			return
+		}
 		log.Println("failed to update item:", err)
 		c.JSON(500, gin.H{"error": "Failed to update item"})
 		return
 	}
 
 	rows, _ := result.RowsAffected()
+	if rows > 0 && request.Quantity != previousQuantity {
+		id, _ := strconv.Atoi(itemID)
+		if err := services.LogStockMovement(
+			h.db.DB, id, companyID, userID, "adjustment",
+			request.Quantity-previousQuantity, previousQuantity, request.Quantity,
+			nil, nil,
+		); err != nil {
+			log.Println("failed to log stock movement:", err)
+		}
+	}
 	if rows == 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Item not found or unauthorized"})
 		return
@@ -227,4 +265,94 @@ WHERE id = $1 AND user_id = $2
 		"items": []models.Item{item},
 	})
 
+}
+
+// RestockItem records stock received from a supplier — increments quantity and
+// logs it to the audit trail, distinct from a manual quantity edit.
+func (h *itemHandler) RestockItem(c *gin.Context) {
+	itemID := c.Param("itemId")
+	userID := c.GetInt("user_id")
+
+	var request models.RestockRequestDTO
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	var previousQuantity, companyID int
+	err := h.db.DB.QueryRow(`
+		SELECT quantity, company_id FROM items WHERE id = $1 AND user_id = $2
+	`, itemID, userID).Scan(&previousQuantity, &companyID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Item not found"})
+		return
+	}
+
+	newQuantity := previousQuantity + request.Quantity
+
+	_, err = h.db.DB.Exec(`
+		UPDATE items SET quantity = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3
+	`, newQuantity, itemID, userID)
+	if err != nil {
+		log.Println("failed to restock item:", err)
+		c.JSON(500, gin.H{"error": "Failed to restock item"})
+		return
+	}
+
+	id, _ := strconv.Atoi(itemID)
+	if err := services.LogStockMovement(
+		h.db.DB, id, companyID, userID, "restock",
+		request.Quantity, previousQuantity, newQuantity,
+		request.Reference, request.Note,
+	); err != nil {
+		log.Println("failed to log stock movement:", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "Stock updated",
+		"quantity": newQuantity,
+	})
+}
+
+// GetItemMovements returns an item's stock audit trail, newest first.
+func (h *itemHandler) GetItemMovements(c *gin.Context) {
+	itemID := c.Param("itemId")
+	userID := c.GetInt("user_id")
+
+	var owned bool
+	h.db.DB.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND user_id = $2)
+	`, itemID, userID).Scan(&owned)
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	rows, err := h.db.DB.Query(`
+		SELECT id, item_id, movement_type, quantity_change, previous_quantity,
+		       new_quantity, reference, note, TO_CHAR(created_at, 'DD Mon YYYY, HH12:MI AM')
+		FROM stock_movements
+		WHERE item_id = $1
+		ORDER BY created_at DESC
+		LIMIT 50
+	`, itemID)
+	if err != nil {
+		log.Println("failed to fetch stock movements:", err)
+		c.JSON(500, gin.H{"error": "Failed to fetch stock movements"})
+		return
+	}
+	defer rows.Close()
+
+	movements := []models.StockMovement{}
+	for rows.Next() {
+		var m models.StockMovement
+		if err := rows.Scan(
+			&m.ID, &m.ItemID, &m.MovementType, &m.QuantityChange,
+			&m.PreviousQuantity, &m.NewQuantity, &m.Reference, &m.Note, &m.CreatedAt,
+		); err == nil {
+			movements = append(movements, m)
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"movements": movements})
 }

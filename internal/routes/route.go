@@ -26,6 +26,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	companyBankHandlerss := handlers.NewCompanyBankHandler(db.DB)
 	gstReportHandler := handlers.NewGSTReportHandler(db.DB)
 	agingReportHandler := handlers.NewAgingReportHandler(db.DB)
+	stockReportHandler := handlers.NewStockReportHandler(db.DB)
 	estimateHandler := handlers.NewEstimateHandler(db)
 	pushService := services.NewPushService(db.DB, cfg)
 	deviceTokenHandler := handlers.NewDeviceTokenHandler(pushService)
@@ -96,6 +97,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.PUT("/items/:itemId", itemHandler.UpdateItem)
 		protected.GET("/items/:companyId/all", itemHandler.GetItems)
 		protected.GET("/item/:itemId/one", itemHandler.GetItemByID)
+		protected.POST("/item/:itemId/restock", itemHandler.RestockItem)
+		protected.GET("/item/:itemId/movements", itemHandler.GetItemMovements)
 
 		// Category routes
 		protected.POST("/categories", categoryHandler.CreateCategory)
@@ -148,6 +151,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// GST reports
 		protected.GET("/companies/:companyId/reports/gstr1", gstReportHandler.GetGSTReport)
 		protected.GET("/companies/:companyId/reports/aging", agingReportHandler.GetAgingReport)
+		protected.GET("/companies/:companyId/reports/stock", stockReportHandler.GetStockReport)
 
 		protected.GET("/companies/:companyId/banks", companyBankHandlerss.List)
 		protected.POST("/companies/:companyId/banks", companyBankHandlerss.Create)

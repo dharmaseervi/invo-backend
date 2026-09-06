@@ -1176,6 +1176,19 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 		return
 	}
 
+	// Log each deducted item to the stock audit trail. Quantity was already
+	// decremented above, so the pre-deduction value is simply quantity + qty.
+	_, err = tx.Exec(`
+		INSERT INTO stock_movements (item_id, company_id, user_id, movement_type, quantity_change, previous_quantity, new_quantity, reference)
+		SELECT it.id, $2, $3, 'sale', -ii.qty, it.quantity + ii.qty, it.quantity, $4
+		FROM items it
+		JOIN invoice_items ii ON ii.item_id = it.id
+		WHERE ii.invoice_id = $1
+	`, invoiceID, companyID, userID, number)
+	if err != nil {
+		log.Println("failed to log stock movements for invoice issue:", err)
+	}
+
 	// Check for items that just crossed into low/out-of-stock, to notify after commit —
 	// never notify about a transaction that might still roll back.
 	var lowStockItems []string
