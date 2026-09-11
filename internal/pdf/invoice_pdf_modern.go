@@ -214,7 +214,7 @@ func (g *ModernInvoiceGenerator) drawItemsTable(y float64) float64 {
 		pdf.CellFormat(wQty, rowH, fmt.Sprintf("%d", item.Qty), "", 0, "C", false, 0, "")
 		pdf.CellFormat(wRate, rowH, fmt.Sprintf("%.2f", item.Rate), "", 0, "R", false, 0, "")
 		pdf.CellFormat(wTax, rowH, fmt.Sprintf("%.1f%%", item.TaxRate), "", 0, "C", false, 0, "")
-		pdf.CellFormat(wAmt, rowH, fmt.Sprintf("%.2f", item.Total), "", 1, "R", false, 0, "")
+		pdf.CellFormat(wAmt, rowH, fmt.Sprintf("%.2f", item.Taxable), "", 1, "R", false, 0, "")
 	}
 
 	endY := pdf.GetY()
@@ -229,22 +229,34 @@ func (g *ModernInvoiceGenerator) drawItemsTable(y float64) float64 {
 
 func (g *ModernInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	pdf := g.pdf
+	inv := g.data.Invoice
+	taxRows := inv.TaxSummaryRows()
 
-	cgst := g.data.Invoice.Tax / 2
-	sgst := g.data.Invoice.Tax / 2
+	rowCount := len(taxRows) + 1
+	if inv.Discount > 0 {
+		rowCount++
+	}
 
-	if y > 210 {
+	if y+float64(rowCount)*6+26 > 258 {
 		pdf.AddPage()
 		y = marginT + 10
 	}
 
 	x := marginL + pageW - 80
 
-	g.taxRow(x, y, "Taxable Amount", g.data.Invoice.Subtotal)
-	g.taxRow(x, y+6, "CGST @ 9.0%", cgst)
-	g.taxRow(x, y+12, "SGST @ 9.0%", sgst)
+	rowY := y
+	g.taxRow(x, rowY, "Taxable Amount", inv.Subtotal)
+	rowY += 6
+	for _, row := range taxRows {
+		g.taxRow(x, rowY, row.Label, row.Amount)
+		rowY += 6
+	}
+	if inv.Discount > 0 {
+		g.taxRow(x, rowY, "Discount", -inv.Discount)
+		rowY += 6
+	}
 
-	y += 20
+	y = rowY + 2
 	pdf.SetFillColor(accentR, accentG, accentB)
 	pdf.Rect(x-4, y, 84, 11, "F")
 	pdf.SetTextColor(255, 255, 255)

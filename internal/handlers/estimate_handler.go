@@ -642,6 +642,27 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 		}
 	}
 
+	// Snapshot the client's addresses exactly as CreateInvoice does. Without this the
+	// invoice has no billing state, which decides CGST+SGST vs IGST on both the printed
+	// invoice and the GST return — a converted estimate would be booked as interstate.
+	billingAddr, err := fetchClientAddress(tx, clientID, "billing")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Client billing address is required"})
+		return
+	}
+	if err := insertInvoiceAddress(tx, invoiceID, "billing", *billingAddr); err != nil {
+		log.Println("failed to save invoice billing address:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save invoice billing address"})
+		return
+	}
+	if shippingAddr, _ := fetchClientAddress(tx, clientID, "shipping"); shippingAddr != nil {
+		if err := insertInvoiceAddress(tx, invoiceID, "shipping", *shippingAddr); err != nil {
+			log.Println("failed to save invoice shipping address:", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save invoice shipping address"})
+			return
+		}
+	}
+
 	_, err = tx.Exec(`
 		UPDATE estimates SET status = 'converted', converted_invoice_id = $1, updated_at = NOW()
 		WHERE id = $2

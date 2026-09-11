@@ -27,6 +27,7 @@ func (s *PaymentService) RecordPaymentTx(
 	if len(req.Allocations) == 0 {
 		allocations, err := s.autoAllocateFIFO(
 			tx,
+			companyID,
 			clientID,
 			req.Amount,
 		)
@@ -76,16 +77,27 @@ func (s *PaymentService) RecordPaymentTx(
 	// 4️⃣ Apply allocations
 	for _, alloc := range req.Allocations {
 
+		// Scoping this lookup to the caller's own company AND client is what stops a
+		// crafted allocation from settling an invoice that belongs to someone else —
+		// the handler only ever verifies the client, never the invoice ids.
 		var remaining float64
+		var status string
 		err := tx.QueryRow(`
-			SELECT remaining_amount
+			SELECT remaining_amount, status
 			FROM invoices
-			WHERE id = $1
+			WHERE id = $1 AND company_id = $2 AND client_id = $3
 			FOR UPDATE
-		`, alloc.InvoiceID).Scan(&remaining)
+		`, alloc.InvoiceID, companyID, clientID).Scan(&remaining, &status)
 
+		if err == sql.ErrNoRows {
+			return errors.New("invoice does not belong to this client")
+		}
 		if err != nil {
 			return err
+		}
+
+		if !isPayableStatus(status) {
+			return errors.New("invoice is not open for payment")
 		}
 
 		if alloc.Amount > remaining {
@@ -134,8 +146,16 @@ func (s *PaymentService) RecordPaymentTx(
 	)
 }
 
+// isPayableStatus reports whether an invoice can take a payment. A draft has not been
+// issued yet (its number and stock movement are still pending) and a cancelled invoice
+// is closed — settling either one leaves it in a state it can never be issued from.
+func isPayableStatus(status string) bool {
+	return status == "issued" || status == "partial"
+}
+
 func (s *PaymentService) autoAllocateFIFO(
 	tx *sql.Tx,
+	companyID int64,
 	clientID int64,
 	amount float64,
 ) ([]models.PaymentAllocationDTO, error) {
@@ -144,10 +164,12 @@ func (s *PaymentService) autoAllocateFIFO(
 		SELECT id, remaining_amount
 		FROM invoices
 		WHERE client_id = $1
+		  AND company_id = $2
+		  AND status IN ('issued', 'partial')
 		  AND remaining_amount > 0
 		ORDER BY invoice_date ASC
 		FOR UPDATE
-	`, clientID)
+	`, clientID, companyID)
 	if err != nil {
 		return nil, err
 	}

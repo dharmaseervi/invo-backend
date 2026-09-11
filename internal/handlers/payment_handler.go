@@ -61,7 +61,11 @@ func (h *PaymentHandler) RecordPayment(c *gin.Context) {
 		return
 	}
 
-	tx.Commit()
+	if err = tx.Commit(); err != nil {
+		log.Println("failed to commit payment:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to record payment"})
+		return
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "Payment recorded successfully",

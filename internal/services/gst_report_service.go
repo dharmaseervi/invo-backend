@@ -75,8 +75,13 @@ func GenerateGSTReport(db *sql.DB, companyID int64, start, end string) (*models.
 		}
 		taxAmount := lineTotalIncTx - taxableValue
 
-		intrastate := companyState != "" &&
-			strings.EqualFold(strings.TrimSpace(companyState), strings.TrimSpace(billingState))
+		// An unrecorded place of supply (walk-in cash sale, or an invoice created before
+		// addresses were snapshotted) defaults to the supplier's own state under GST —
+		// treating it as interstate would report local sales as IGST in the return.
+		trimmedCompany := strings.TrimSpace(companyState)
+		trimmedBilling := strings.TrimSpace(billingState)
+		intrastate := trimmedCompany == "" || trimmedBilling == "" ||
+			strings.EqualFold(trimmedCompany, trimmedBilling)
 
 		var cgst, sgst, igst float64
 		if intrastate {

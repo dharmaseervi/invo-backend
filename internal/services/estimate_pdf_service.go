@@ -3,6 +3,7 @@ package services
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"invo-server/internal/pdf"
 )
@@ -91,7 +92,8 @@ func FetchEstimatePDFData(db *sql.DB, estimateID int) (pdf.InvoicePDFData, error
 	}
 
 	itemRows, err := db.Query(`
-		SELECT it.name, COALESCE(it.hsn_code, ''), ei.qty, ei.rate, ei.total
+		SELECT it.name, COALESCE(it.hsn_code, ''), ei.qty, ei.rate,
+		       COALESCE(ei.tax_rate, 0), ei.total
 		FROM estimate_items ei
 		JOIN items it ON it.id = ei.item_id
 		WHERE ei.estimate_id = $1
@@ -102,13 +104,44 @@ func FetchEstimatePDFData(db *sql.DB, estimateID int) (pdf.InvoicePDFData, error
 	}
 	defer itemRows.Close()
 
+	// Estimate lines are stored tax-inclusive like invoice lines, so the same
+	// rate-wise split applies — otherwise the quotation's tax box can't be built.
+	taxByRate := map[float64]*pdf.TaxLine{}
+	rateOrder := []float64{}
+
 	for itemRows.Next() {
 		var item pdf.InvoiceItem
-		if err := itemRows.Scan(&item.Name, &item.HSNCode, &item.Qty, &item.Rate, &item.Total); err != nil {
+		if err := itemRows.Scan(
+			&item.Name, &item.HSNCode, &item.Qty, &item.Rate, &item.TaxRate, &item.Total,
+		); err != nil {
 			return data, err
 		}
+
+		item.Taxable = item.Total
+		if item.TaxRate > 0 {
+			item.Taxable = item.Total / (1 + item.TaxRate/100)
+		}
+
+		line, seen := taxByRate[item.TaxRate]
+		if !seen {
+			line = &pdf.TaxLine{Rate: item.TaxRate}
+			taxByRate[item.TaxRate] = line
+			rateOrder = append(rateOrder, item.TaxRate)
+		}
+		line.Taxable += item.Taxable
+		line.Amount += item.Total - item.Taxable
+
 		data.Items = append(data.Items, item)
 	}
+
+	for _, rate := range rateOrder {
+		data.Invoice.TaxLines = append(data.Invoice.TaxLines, *taxByRate[rate])
+	}
+
+	companyState := strings.TrimSpace(data.CompanyAddress.State)
+	billingState := strings.TrimSpace(data.ClientBilling.State)
+	data.Invoice.IsInterstate = companyState != "" && billingState != "" &&
+		!strings.EqualFold(companyState, billingState)
 
 	err = db.QueryRow(`
 		SELECT bank_name, account_number, ifsc_code, COALESCE(branch, '')

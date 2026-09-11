@@ -318,7 +318,7 @@ func (g *TallyInvoiceGenerator) drawItemsTable(y float64) float64 {
 		pdf.CellFormat(wQty, rowH, fmt.Sprintf("%d", item.Qty), "R", 0, "C", false, 0, "")
 		pdf.CellFormat(wRate, rowH, fmt.Sprintf("%.2f", item.Rate), "R", 0, "R", false, 0, "")
 		pdf.CellFormat(wTax, rowH, fmt.Sprintf("%.1f%%", item.TaxRate), "R", 0, "C", false, 0, "")
-		pdf.CellFormat(wAmt, rowH, fmt.Sprintf("%.2f", item.Total), "", 1, "R", false, 0, "")
+		pdf.CellFormat(wAmt, rowH, fmt.Sprintf("%.2f", item.Taxable), "", 1, "R", false, 0, "")
 	}
 
 	endY := pdf.GetY()
@@ -331,17 +331,30 @@ func (g *TallyInvoiceGenerator) drawItemsTable(y float64) float64 {
 // ─── Totals Section ──────────────────────────────────────────────────────────
 func (g *TallyInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	pdf := g.pdf
-	h := 38.0
+	inv := g.data.Invoice
+	taxRows := inv.TaxSummaryRows()
 	mid := marginL + pageW/2
 
-	cgst := g.data.Invoice.Tax / 2
-	sgst := g.data.Invoice.Tax / 2
+	// Both columns grow with their content: an invoice mixing 5%, 12% and 18% items
+	// prints one row per rate, and a fixed height would overlap the block below.
+	rightRows := 2
+	if inv.Discount > 0 {
+		rightRows++
+	}
+	h := 38.0
+	if leftHeight := 8 + float64(len(taxRows)+1)*6; leftHeight > h {
+		h = leftHeight
+	}
+	if rightHeight := 8 + float64(rightRows)*6 + 11; rightHeight > h {
+		h = rightHeight
+	}
 
 	// If not enough space for totals add new page
-	if y > 220 {
+	if y+h > 258 {
 		pdf.AddPage()
 		y = marginT + 10
 	}
+	barY := y + 8 + float64(rightRows)*6
 
 	// GST Summary (left)
 	pdf.SetFillColor(240, 240, 240)
@@ -350,10 +363,14 @@ func (g *TallyInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	pdf.SetXY(marginL+2, y+1)
 	pdf.Cell(40, 4, "GST SUMMARY")
 
-	g.taxRow(marginL+2, y+8, "Taxable Amount", g.data.Invoice.Subtotal)
-	g.taxRow(marginL+2, y+14, "CGST @ 9.0%", cgst)
-	g.taxRow(marginL+2, y+20, "SGST @ 9.0%", sgst)
-	g.taxRow(marginL+2, y+26, "Total Tax", g.data.Invoice.Tax)
+	rowY := y + 8
+	g.taxRow(marginL+2, rowY, "Taxable Amount", inv.Subtotal)
+	rowY += 6
+	for _, row := range taxRows {
+		g.taxRow(marginL+2, rowY, row.Label, row.Amount)
+		rowY += 6
+	}
+	g.taxRow(marginL+2, rowY, "Total Tax", inv.Tax)
 
 	// Vertical divider
 	pdf.SetDrawColor(200, 200, 200)
@@ -367,19 +384,23 @@ func (g *TallyInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	pdf.SetXY(mid+3, y+1)
 	pdf.Cell(40, 4, "INVOICE SUMMARY")
 
-	g.taxRow(mid+3, y+8, "Subtotal", g.data.Invoice.Subtotal)
-	g.taxRow(mid+3, y+14, "Total Tax", g.data.Invoice.Tax)
+	g.taxRow(mid+3, y+8, "Subtotal", inv.Subtotal)
+	g.taxRow(mid+3, y+14, "Total Tax", inv.Tax)
+	if inv.Discount > 0 {
+		// Without this line the printed subtotal and tax don't add up to the total.
+		g.taxRow(mid+3, y+20, "Discount", -inv.Discount)
+	}
 
 	// Grand Total bar
 	pdf.SetFillColor(20, 20, 20)
-	pdf.Rect(mid, y+22, pageW/2, 9, "F")
+	pdf.Rect(mid, barY, pageW/2, 9, "F")
 	pdf.SetTextColor(255, 255, 255)
 	pdf.SetFont("Helvetica", "B", 9)
-	pdf.SetXY(mid+3, y+23)
+	pdf.SetXY(mid+3, barY+1)
 	pdf.Cell(30, 7, "GRAND TOTAL")
-	pdf.SetXY(mid+3, y+23)
+	pdf.SetXY(mid+3, barY+1)
 	pdf.CellFormat(pageW/2-6, 7,
-		fmt.Sprintf("INR %.2f", g.data.Invoice.Total),
+		fmt.Sprintf("INR %.2f", inv.Total),
 		"", 0, "R", false, 0, "")
 	pdf.SetTextColor(0, 0, 0)
 

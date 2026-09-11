@@ -918,7 +918,9 @@ func (h *InvoiceHandler) GetInvoiceNumberPreview(c *gin.Context) {
 		next = 1
 	}
 
-	preview := fmt.Sprintf("INV/%s/%06d", fy, next)
+	// Must match the format CreateInvoice actually issues, or the number the user is
+	// shown before saving is not the number that ends up on the invoice.
+	preview := fmt.Sprintf("INV/%s/%04d", fy, next)
 
 	c.JSON(200, gin.H{
 		"preview": preview,
@@ -1102,11 +1104,18 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	// caller can re-request with ?force=true to proceed anyway.
 	force := c.Query("force") == "true"
 	if !force {
+		// Summed per item for the same reason the deduction is: two lines of 3 and 5
+		// against 6 in stock oversells, but neither line exceeds stock on its own.
 		overRows, overErr := tx.Query(`
-			SELECT it.name, it.quantity, ii.qty
+			SELECT it.name, it.quantity, agg.total_qty
 			FROM items it
-			JOIN invoice_items ii ON ii.item_id = it.id
-			WHERE ii.invoice_id = $1 AND it.quantity < ii.qty
+			JOIN (
+				SELECT item_id, SUM(qty) AS total_qty
+				FROM invoice_items
+				WHERE invoice_id = $1
+				GROUP BY item_id
+			) agg ON agg.item_id = it.id
+			WHERE it.quantity < agg.total_qty
 		`, invoiceID)
 		if overErr != nil {
 			c.JSON(500, gin.H{"error": "failed to check stock"})
@@ -1165,11 +1174,19 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	// 3️⃣ Deduct stock — only now, since a draft might never be issued.
 	// Negative stock is allowed (many items are services with no real inventory);
 	// this only tracks quantity, it never blocks issuing.
+	// Quantities are summed per item first: an invoice can legitimately carry the same
+	// item on more than one line, and Postgres applies an UPDATE ... FROM only once per
+	// target row, so joining invoice_items directly would deduct only one of those lines.
 	_, err = tx.Exec(`
 		UPDATE items it
-		SET quantity = it.quantity - ii.qty
-		FROM invoice_items ii
-		WHERE ii.invoice_id = $1 AND it.id = ii.item_id
+		SET quantity = it.quantity - agg.total_qty
+		FROM (
+			SELECT item_id, SUM(qty) AS total_qty
+			FROM invoice_items
+			WHERE invoice_id = $1
+			GROUP BY item_id
+		) agg
+		WHERE it.id = agg.item_id
 	`, invoiceID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to update stock"})
@@ -1180,10 +1197,14 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	// decremented above, so the pre-deduction value is simply quantity + qty.
 	_, err = tx.Exec(`
 		INSERT INTO stock_movements (item_id, company_id, user_id, movement_type, quantity_change, previous_quantity, new_quantity, reference)
-		SELECT it.id, $2, $3, 'sale', -ii.qty, it.quantity + ii.qty, it.quantity, $4
+		SELECT it.id, $2, $3, 'sale', -agg.total_qty, it.quantity + agg.total_qty, it.quantity, $4
 		FROM items it
-		JOIN invoice_items ii ON ii.item_id = it.id
-		WHERE ii.invoice_id = $1
+		JOIN (
+			SELECT item_id, SUM(qty) AS total_qty
+			FROM invoice_items
+			WHERE invoice_id = $1
+			GROUP BY item_id
+		) agg ON agg.item_id = it.id
 	`, invoiceID, companyID, userID, number)
 	if err != nil {
 		log.Println("failed to log stock movements for invoice issue:", err)
@@ -1211,7 +1232,13 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 		lowStockRows.Close()
 	}
 
-	tx.Commit()
+	// Reporting success for a commit that actually failed would tell the user their
+	// invoice is issued while the number, ledger entry and stock deduction all rolled back.
+	if err = tx.Commit(); err != nil {
+		log.Println("failed to commit invoice issue:", err)
+		c.JSON(500, gin.H{"error": "Failed to issue invoice"})
+		return
+	}
 
 	if len(lowStockItems) > 0 {
 		h.PushService.SendToUser(userID, "Low stock", strings.Join(lowStockItems, ", "))
