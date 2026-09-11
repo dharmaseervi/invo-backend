@@ -77,8 +77,14 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	// Protected routes
 	protected := r.Group("/api/v1")
 	// Authenticated traffic had no ceiling at all, so one client could pin the database
-	// pool with report and PDF requests. Generous enough that normal use never sees it.
-	protected.Use(middleware.AuthMiddleware([]byte(cfg.JWT.Secret), db.DB), middleware.RateLimiter())
+	// pool with report and PDF requests. Limited per account rather than per IP: staff
+	// sharing a shop's wifi would otherwise share one budget and throttle each other.
+	// 20/sec with a burst of 40 is far above what any screen does — including a fast
+	// scroll through a paged list — while still bounding a runaway client.
+	protected.Use(
+		middleware.AuthMiddleware([]byte(cfg.JWT.Secret), db.DB),
+		middleware.UserRateLimiter(20, 40),
+	)
 	{
 		protected.POST("/refresh-token", authHandler.RefreshToken)
 		protected.POST("/logout", authHandler.Logout)

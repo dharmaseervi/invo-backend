@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -202,7 +203,6 @@ func RateLimiter() gin.HandlerFunc {
 	}
 }
 
-
 // maxCredentialBodyPeek caps how much of a request body is read to find the account
 // being targeted. Auth payloads are tiny; anything larger is not worth buffering.
 const maxCredentialBodyPeek = 8 << 10
@@ -242,6 +242,33 @@ func CredentialRateLimiter(perMinute float64, burst int) gin.HandlerFunc {
 			}
 		}
 
+		c.Next()
+	}
+}
+
+// UserRateLimiter throttles authenticated traffic per user account rather than per IP.
+//
+// Keying authenticated routes on the IP is wrong in two directions. Several staff in
+// one shop share a NAT address, so they would share a single budget and throttle each
+// other; and the limit has to be loose enough for a screen that fires a handful of
+// requests at once, which makes it useless as a per-client ceiling. The account is the
+// thing worth limiting, and it is already established by the auth middleware.
+//
+// Must be registered after AuthMiddleware, which is what sets user_id.
+func UserRateLimiter(perSecond float64, burst int) gin.HandlerFunc {
+	limiter := newKeyedRateLimiter(rate.Limit(perSecond), burst)
+
+	return func(c *gin.Context) {
+		key := c.ClientIP()
+		if userID := c.GetInt("user_id"); userID != 0 {
+			key = "user:" + strconv.Itoa(userID)
+		}
+
+		if !limiter.getLimiter(key).Allow() {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many requests, please slow down"})
+			c.Abort()
+			return
+		}
 		c.Next()
 	}
 }

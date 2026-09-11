@@ -73,3 +73,49 @@ func TestCredentialRateLimiterRestoresBody(t *testing.T) {
 		t.Fatalf("handler could not read body after limiter: code=%d body=%q", w.Code, w.Body.String())
 	}
 }
+
+// Staff sharing a shop's wifi come from one address. Limiting authenticated routes by
+// IP would make them throttle each other, so the account is the key.
+func TestUserRateLimiterIsolatesAccountsBehindOneIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	r := gin.New()
+	// Stand in for AuthMiddleware, which is what normally sets this.
+	r.Use(func(c *gin.Context) {
+		c.Set("user_id", mustParseUser(c.GetHeader("X-Test-User")))
+		c.Next()
+	})
+	r.Use(UserRateLimiter(60, 2)) // burst of 2
+	r.GET("/items", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	send := func(user string) int {
+		req := httptest.NewRequest(http.MethodGet, "/items", nil)
+		req.RemoteAddr = "203.0.113.9:5000" // one shared office address
+		req.Header.Set("X-Test-User", user)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	// User 1 spends their whole budget.
+	for i := 0; i < 2; i++ {
+		if code := send("1"); code != http.StatusOK {
+			t.Fatalf("user 1 request %d: got %d, want 200", i+1, code)
+		}
+	}
+	if code := send("1"); code != http.StatusTooManyRequests {
+		t.Errorf("user 1 over budget: got %d, want 429", code)
+	}
+
+	// User 2, same IP, must be unaffected.
+	if code := send("2"); code != http.StatusOK {
+		t.Errorf("user 2 on the same IP: got %d, want 200 — accounts are throttling each other", code)
+	}
+}
+
+func mustParseUser(s string) int {
+	if s == "1" {
+		return 1
+	}
+	return 2
+}
