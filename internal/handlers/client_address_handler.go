@@ -127,7 +127,5 @@ func (h *ClientAddressHandler) GetClientAddress(c *gin.Context) {
 		return
 	}
 
-	log.Println("Fetched client address:", address)
-
 	c.JSON(http.StatusOK, gin.H{"data": address})
 }

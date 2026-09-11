@@ -1,17 +1,24 @@
 package main
 
 import (
+	"context"
 	"invo-server/internal/config"
 	database "invo-server/internal/db"
 	"invo-server/internal/routes"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+// maxRequestBytes caps any single request body. Without a limit, one client can make
+// the server buffer arbitrary amounts of memory. Invoice payloads are kilobytes.
+const maxRequestBytes = 2 << 20 // 2 MiB
 
 func main() {
 	cfg := config.Load()
@@ -74,10 +81,24 @@ func main() {
 		c.File("./static/terms.html")
 	})
 	r.Static("/screenshots", "./public/screenshots")
-	// Health check for cron keep-alive
+	// Health check for cron keep-alive. It pings the database, because a server that
+	// answers "ok" while its database is unreachable tells a load balancer to keep
+	// sending traffic it cannot serve.
 	r.GET("/api/v1/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+
+		if err := db.DB.PingContext(ctx); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "database": "unreachable"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "database": "ok"})
 	})
+	r.Use(func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBytes)
+		c.Next()
+	})
+
 	// ✅ Register all routes (moved out)
 	routes.RegisterRoutes(r, db, cfg)
 
@@ -91,13 +112,36 @@ func main() {
 	log.Printf("🚀 Server running on %s", addr)
 
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		Addr:    addr,
+		Handler: r,
+		// ReadHeaderTimeout specifically bounds slow header attacks, where a client
+		// trickles headers to hold a connection open indefinitely.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal("Server failed to start:", err)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal("Server failed to start:", err)
+		}
+	}()
+
+	// Wait for a termination signal, then stop accepting new connections and give
+	// in-flight requests a chance to finish. Without this, a deploy kills requests
+	// mid-write — including a transaction that has committed but not yet responded.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Println("Forced shutdown:", err)
 	}
+	log.Println("Server stopped")
 }

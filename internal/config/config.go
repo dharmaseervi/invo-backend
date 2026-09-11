@@ -69,12 +69,20 @@ func Load() *Config {
 	config.Database.Host = getEnv("DB_HOST", "localhost")
 	config.Database.Port = getEnv("DB_PORT", "5432")
 	config.Database.DBName = getEnv("DB_NAME", "invo_db")
-	config.Database.SSLMode = getEnv("DB_SSLMODE", "disable")
+	// Defaults to an encrypted connection. A missing variable previously fell back to
+	// "disable", which silently sent credentials and customer data over the wire in
+	// plaintext — a misconfiguration that looks identical to a working one.
+	config.Database.SSLMode = getEnv("DB_SSLMODE", "require")
 
 	if config.Environment == "production" {
 		config.Database.User = mustGetEnv("DB_USER")
 		config.Database.Password = mustGetEnv("DB_PASSWORD")
 		config.JWT.Secret = mustGetEnv("JWT_SECRET")
+
+		// Refuse rather than quietly run a production database link unencrypted.
+		if config.Database.SSLMode == "disable" {
+			log.Fatal("DB_SSLMODE=disable is not allowed in production")
+		}
 	} else {
 		config.Database.User = getEnv("DB_USER", "user")
 		config.Database.Password = getEnv("DB_PASSWORD", "password")

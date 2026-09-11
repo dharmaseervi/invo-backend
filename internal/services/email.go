@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 )
 
 type EmailService struct {
@@ -69,7 +70,9 @@ func (s *EmailService) send(to, subject, html string, attachments []resendAttach
 		return fmt.Errorf("resend %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	log.Printf("Email sent to %s, status: %d", to, resp.StatusCode)
+	// Redacted: knowing a send succeeded is useful, keeping customer addresses in log
+	// retention is not. Enough of the address survives to correlate a support report.
+	log.Printf("Email sent to %s, status: %d", redactEmail(to), resp.StatusCode)
 	return nil
 }
 
@@ -197,4 +200,14 @@ func (s *EmailService) SendPasswordResetEmail(toEmail, code string) error {
 	`, code)
 
 	return s.send(toEmail, subject, html, nil)
+}
+
+// redactEmail keeps the domain and the first character of the local part, so logs can
+// be matched against a reported address without storing the address itself.
+func redactEmail(address string) string {
+	at := strings.LastIndex(address, "@")
+	if at <= 0 {
+		return "***"
+	}
+	return address[:1] + "***" + address[at:]
 }
