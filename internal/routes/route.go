@@ -60,14 +60,25 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	public.Use(middleware.RateLimiter())
 	{
 		public.POST("/register", authHandler.Register)
-		public.POST("/login", authHandler.Login)
-		public.POST("/forgot-password", authHandler.ForgotPassword)
-		public.POST("/reset-password", authHandler.ResetPassword)
+	}
+
+	// Anything that accepts a password or a one-time code is limited per account as
+	// well as per IP: 10 attempts a minute is ample for a person mistyping a code, and
+	// far too slow to guess a six-digit code or stuff credentials, even from a pool of
+	// addresses. The per-code attempt counter backs this up at the database level.
+	credentials := r.Group("/api/v1")
+	credentials.Use(middleware.RateLimiter(), middleware.CredentialRateLimiter(10, 10))
+	{
+		credentials.POST("/login", authHandler.Login)
+		credentials.POST("/forgot-password", authHandler.ForgotPassword)
+		credentials.POST("/reset-password", authHandler.ResetPassword)
 	}
 
 	// Protected routes
 	protected := r.Group("/api/v1")
-	protected.Use(middleware.AuthMiddleware([]byte(cfg.JWT.Secret), db.DB))
+	// Authenticated traffic had no ceiling at all, so one client could pin the database
+	// pool with report and PDF requests. Generous enough that normal use never sees it.
+	protected.Use(middleware.AuthMiddleware([]byte(cfg.JWT.Secret), db.DB), middleware.RateLimiter())
 	{
 		protected.POST("/refresh-token", authHandler.RefreshToken)
 		protected.POST("/logout", authHandler.Logout)
@@ -161,11 +172,11 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/invoices/:id/send-email", emailHandler.SendInvoiceEmail)
 
 		// Add to public routes (no auth needed)
-		public.POST("/send-otp", otpHandler.SendOTP)
-		public.POST("/verify-otp", otpHandler.VerifyOTP)
+		credentials.POST("/send-otp", otpHandler.SendOTP)
+		credentials.POST("/verify-otp", otpHandler.VerifyOTP)
 		// Add to public routes
-		public.POST("/verify-email", authHandler.VerifyEmail)
-		public.POST("/resend-verification", authHandler.ResendVerification)
+		credentials.POST("/verify-email", authHandler.VerifyEmail)
+		credentials.POST("/resend-verification", authHandler.ResendVerification)
 
 		protected.DELETE("/account", authHandler.DeleteAccount)
 	}

@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -134,18 +137,20 @@ type visitor struct {
 	lastSeen time.Time
 }
 
-// ipRateLimiter gives every client IP its own token bucket. A single shared
-// limiter (the old behavior) means one busy or abusive IP throttles every
-// other user of the API; per-IP limiting only punishes the IP that earns it.
-type ipRateLimiter struct {
+// keyedRateLimiter gives every key its own token bucket. A single shared limiter
+// means one busy or abusive client throttles everyone; keying it only punishes the
+// client that earns it. The key is the IP for general traffic, and the account for
+// credential endpoints — limiting purely by IP lets an attacker spread an attack on
+// one account across many addresses.
+type keyedRateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
 	r        rate.Limit
 	burst    int
 }
 
-func newIPRateLimiter(r rate.Limit, burst int) *ipRateLimiter {
-	l := &ipRateLimiter{
+func newKeyedRateLimiter(r rate.Limit, burst int) *keyedRateLimiter {
+	l := &keyedRateLimiter{
 		visitors: make(map[string]*visitor),
 		r:        r,
 		burst:    burst,
@@ -154,29 +159,29 @@ func newIPRateLimiter(r rate.Limit, burst int) *ipRateLimiter {
 	return l
 }
 
-func (l *ipRateLimiter) getLimiter(ip string) *rate.Limiter {
+func (l *keyedRateLimiter) getLimiter(key string) *rate.Limiter {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	v, exists := l.visitors[ip]
+	v, exists := l.visitors[key]
 	if !exists {
 		limiter := rate.NewLimiter(l.r, l.burst)
-		l.visitors[ip] = &visitor{limiter: limiter, lastSeen: time.Now()}
+		l.visitors[key] = &visitor{limiter: limiter, lastSeen: time.Now()}
 		return limiter
 	}
 	v.lastSeen = time.Now()
 	return v.limiter
 }
 
-// cleanupStale drops any IP that hasn't made a request in 10 minutes, so a
-// long-running server doesn't accumulate one entry per IP forever.
-func (l *ipRateLimiter) cleanupStale() {
+// cleanupStale drops any key idle for 10 minutes, so a long-running server does not
+// accumulate one entry per address or account forever.
+func (l *keyedRateLimiter) cleanupStale() {
 	for {
 		time.Sleep(5 * time.Minute)
 		l.mu.Lock()
-		for ip, v := range l.visitors {
+		for key, v := range l.visitors {
 			if time.Since(v.lastSeen) > 10*time.Minute {
-				delete(l.visitors, ip)
+				delete(l.visitors, key)
 			}
 		}
 		l.mu.Unlock()
@@ -186,13 +191,57 @@ func (l *ipRateLimiter) cleanupStale() {
 // RateLimiter middleware to prevent brute force attacks — 5 requests/sec per
 // client IP with a burst of 10, tracked independently per IP.
 func RateLimiter() gin.HandlerFunc {
-	limiter := newIPRateLimiter(rate.Limit(5), 10)
+	limiter := newKeyedRateLimiter(rate.Limit(5), 10)
 	return func(c *gin.Context) {
 		if !limiter.getLimiter(c.ClientIP()).Allow() {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many requests"})
 			c.Abort()
 			return
 		}
+		c.Next()
+	}
+}
+
+
+// maxCredentialBodyPeek caps how much of a request body is read to find the account
+// being targeted. Auth payloads are tiny; anything larger is not worth buffering.
+const maxCredentialBodyPeek = 8 << 10
+
+// CredentialRateLimiter throttles credential endpoints per account as well as per IP.
+//
+// Per-IP limiting alone does not stop credential stuffing: an attacker with a pool of
+// addresses gets the full per-IP budget from each one against the same account. Keying
+// on the target email caps the attempts an account can receive no matter where they
+// come from. Both limits apply — whichever runs out first.
+func CredentialRateLimiter(perMinute float64, burst int) gin.HandlerFunc {
+	byAccount := newKeyedRateLimiter(rate.Limit(perMinute/60), burst)
+	byIP := newKeyedRateLimiter(rate.Limit(perMinute/60), burst)
+
+	return func(c *gin.Context) {
+		if !byIP.getLimiter(c.ClientIP()).Allow() {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many attempts, please wait a moment"})
+			c.Abort()
+			return
+		}
+
+		// The body has to be restored: handlers bind it after this runs.
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxCredentialBodyPeek))
+		if err == nil {
+			c.Request.Body = io.NopCloser(bytes.NewReader(body))
+
+			var payload struct {
+				Email string `json:"email"`
+			}
+			if json.Unmarshal(body, &payload) == nil && payload.Email != "" {
+				key := strings.ToLower(strings.TrimSpace(payload.Email))
+				if !byAccount.getLimiter(key).Allow() {
+					c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many attempts, please wait a moment"})
+					c.Abort()
+					return
+				}
+			}
+		}
+
 		c.Next()
 	}
 }
