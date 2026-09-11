@@ -4,6 +4,7 @@ import (
 	"context"
 	"invo-server/internal/config"
 	database "invo-server/internal/db"
+	"invo-server/internal/observability"
 	"invo-server/internal/routes"
 	"log"
 	"net/http"
@@ -52,8 +53,18 @@ func main() {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// Error reporting is opt-in via SENTRY_DSN and inert without it, so nothing here
+	// requires an account or a third-party service to be reachable.
+	if observability.Init(cfg.Environment, os.Getenv("RELEASE_VERSION")) {
+		defer observability.Flush()
+	}
+
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
+
+	// After Recovery so a panic is still turned into a 500 for the caller; reporting
+	// must not change what the client sees.
+	r.Use(observability.Middleware())
 
 	// CORS Middleware — locked to an explicit allowlist (ALLOWED_ORIGINS, comma-separated).
 	// The mobile app is unaffected: it's not a browser and never sends/needs an Origin header.
@@ -160,5 +171,8 @@ func main() {
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Println("Forced shutdown:", err)
 	}
+
+	// Anything queued is lost once the process exits, so give it a moment.
+	observability.Flush()
 	log.Println("Server stopped")
 }
