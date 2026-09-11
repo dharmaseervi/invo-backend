@@ -11,7 +11,11 @@
 // parts always reconstruct the whole exactly.
 package money
 
-import "github.com/shopspring/decimal"
+import (
+	"sort"
+
+	"github.com/shopspring/decimal"
+)
 
 // places is the scale of every money column in the schema.
 const places = 2
@@ -90,3 +94,64 @@ func (a Amount) Float64() float64 {
 
 // String renders the amount at full precision, for logs and error messages.
 func (a Amount) String() string { return a.d.StringFixed(places) }
+
+// Apportion splits total across weights in proportion to each weight, guaranteeing the
+// parts sum back to total exactly.
+//
+// This is how an invoice-level discount is spread over lines. Rounding each share
+// independently loses or gains paisa — ₹1000 across three equal lines is 333.33 three
+// times, a paisa short — and on a tax invoice the parts have to reconstruct the whole.
+// The remainder is therefore distributed a paisa at a time to the lines with the
+// largest truncated fraction (the largest-remainder method), so the shortfall lands
+// where it was most nearly earned.
+//
+// A zero total, or weights summing to zero, yields all-zero shares.
+func Apportion(total Amount, weights []Amount) []Amount {
+	shares := make([]Amount, len(weights))
+	for i := range shares {
+		shares[i] = Zero()
+	}
+	if len(weights) == 0 || total.IsZero() {
+		return shares
+	}
+
+	sum := Zero()
+	for _, w := range weights {
+		sum = sum.Add(w)
+	}
+	if sum.IsZero() || sum.IsNegative() {
+		return shares
+	}
+
+	// Truncate each exact share down, tracking what each line lost to truncation.
+	type remainder struct {
+		index int
+		frac  decimal.Decimal
+	}
+	remainders := make([]remainder, 0, len(weights))
+	allocated := Zero()
+
+	for i, w := range weights {
+		exact := total.d.Mul(w.d).Div(sum.d)
+		truncated := exact.Truncate(places)
+		shares[i] = Amount{truncated}
+		allocated = allocated.Add(shares[i])
+		remainders = append(remainders, remainder{index: i, frac: exact.Sub(truncated)})
+	}
+
+	// Hand out the leftover in single paisa, biggest truncated fraction first.
+	leftover := total.Sub(allocated)
+	step := Amount{decimal.New(1, -places)}
+
+	sort.SliceStable(remainders, func(a, b int) bool {
+		return remainders[a].frac.GreaterThan(remainders[b].frac)
+	})
+
+	for i := 0; leftover.GreaterThan(Zero()) && i < len(remainders); i++ {
+		idx := remainders[i].index
+		shares[idx] = shares[idx].Add(step)
+		leftover = leftover.Sub(step)
+	}
+
+	return shares
+}

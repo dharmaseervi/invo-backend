@@ -245,7 +245,9 @@ func (g *ModernInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	x := marginL + pageW - 80
 
 	rowY := y
-	g.taxRow(x, rowY, "Taxable Amount", inv.Subtotal)
+	// Labelled Subtotal, not Taxable Amount: the discount row follows below, so this
+	// figure is before the discount while the tax rows are computed after it.
+	g.taxRow(x, rowY, "Subtotal", inv.Subtotal)
 	rowY += 6
 	for _, row := range taxRows {
 		g.taxRow(x, rowY, row.Label, row.Amount)

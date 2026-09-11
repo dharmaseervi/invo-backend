@@ -70,6 +70,20 @@ type TaxLine struct {
 	Amount  float64 // tax charged at this rate
 }
 
+// TaxableValue is the value GST was actually charged on: the subtotal after any
+// invoice-level discount. Derived from the rate-wise lines so the figure printed above
+// the CGST/SGST rows is always the base those rows were computed from.
+func (i Invoice) TaxableValue() float64 {
+	if len(i.TaxLines) == 0 {
+		return i.Subtotal - i.Discount
+	}
+	var sum float64
+	for _, line := range i.TaxLines {
+		sum += line.Taxable
+	}
+	return sum
+}
+
 // TaxSummaryRow is one printable line of a PDF's tax box.
 type TaxSummaryRow struct {
 	Label  string

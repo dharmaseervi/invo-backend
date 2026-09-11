@@ -122,3 +122,104 @@ func TestExactSettlementComparesEqual(t *testing.T) {
 		t.Errorf("expected equality: %v vs %v", payment.Float64(), remaining.Float64())
 	}
 }
+
+// The property that matters: shares must always sum back to the total exactly, however
+// awkwardly it divides. A lost paisa here is an invoice that does not add up.
+func TestApportionAlwaysSumsToTotal(t *testing.T) {
+	cases := []struct {
+		name    string
+		total   float64
+		weights []float64
+	}{
+		{"three equal lines, indivisible", 1000, []float64{100, 100, 100}},
+		{"two equal lines, odd paisa", 0.01, []float64{50, 50}},
+		{"uneven weights", 1000, []float64{4500, 300, 199.99}},
+		{"one line takes all", 250.55, []float64{80}},
+		{"seven lines", 100, []float64{1, 2, 3, 4, 5, 6, 7}},
+		{"tiny total", 0.03, []float64{10, 20, 30, 40}},
+		{"total equals sum", 500, []float64{200, 300}},
+	}
+
+	for _, c := range cases {
+		weights := make([]Amount, len(c.weights))
+		for i, w := range c.weights {
+			weights[i] = FromFloat(w)
+		}
+
+		shares := Apportion(FromFloat(c.total), weights)
+
+		sum := Zero()
+		for _, s := range shares {
+			if s.IsNegative() {
+				t.Errorf("%s: negative share %v", c.name, s.Float64())
+			}
+			sum = sum.Add(s)
+		}
+		if !sum.Equal(FromFloat(c.total)) {
+			t.Errorf("%s: shares sum to %v, want %v", c.name, sum.Float64(), c.total)
+		}
+	}
+}
+
+// Proportionality: a line worth twice as much absorbs twice the discount.
+func TestApportionIsProportional(t *testing.T) {
+	shares := Apportion(FromFloat(300), []Amount{FromFloat(100), FromFloat(200)})
+
+	if shares[0].Float64() != 100 || shares[1].Float64() != 200 {
+		t.Errorf("got %v and %v, want 100 and 200", shares[0].Float64(), shares[1].Float64())
+	}
+}
+
+func TestApportionEdgeCases(t *testing.T) {
+	if got := Apportion(FromFloat(100), nil); len(got) != 0 {
+		t.Errorf("no weights: got %d shares, want 0", len(got))
+	}
+
+	zeroWeights := Apportion(FromFloat(100), []Amount{Zero(), Zero()})
+	for i, s := range zeroWeights {
+		if !s.IsZero() {
+			t.Errorf("zero weights: share %d = %v, want 0", i, s.Float64())
+		}
+	}
+
+	noDiscount := Apportion(Zero(), []Amount{FromFloat(10), FromFloat(20)})
+	for i, s := range noDiscount {
+		if !s.IsZero() {
+			t.Errorf("zero total: share %d = %v, want 0", i, s.Float64())
+		}
+	}
+}
+
+// End to end: a ₹1000 invoice-level discount on three lines, applied before tax, must
+// leave the lines reconstructing the invoice total to the paisa.
+func TestInvoiceDiscountApportionedBeforeTax(t *testing.T) {
+	nets := []Amount{FromFloat(4500), FromFloat(300), FromFloat(199.99)}
+	taxRates := []float64{18, 18, 5}
+	discount := FromFloat(1000)
+
+	shares := Apportion(discount, nets)
+
+	taxableSum, taxSum, lineTotalSum := Zero(), Zero(), Zero()
+	for i, net := range nets {
+		taxable := net.Sub(shares[i]).Round()
+		tax := taxable.TaxAt(taxRates[i])
+		taxableSum = taxableSum.Add(taxable)
+		taxSum = taxSum.Add(tax)
+		lineTotalSum = lineTotalSum.Add(taxable.Add(tax).Round())
+	}
+
+	grossNet := Zero()
+	for _, n := range nets {
+		grossNet = grossNet.Add(n)
+	}
+
+	// Header arithmetic the printed invoice shows.
+	headerTotal := grossNet.Sub(discount).Add(taxSum).Round()
+
+	if !taxableSum.Equal(grossNet.Sub(discount)) {
+		t.Errorf("taxable %v != subtotal - discount %v", taxableSum.Float64(), grossNet.Sub(discount).Float64())
+	}
+	if !lineTotalSum.Equal(headerTotal) {
+		t.Errorf("sum of line totals %v != header total %v", lineTotalSum.Float64(), headerTotal.Float64())
+	}
+}

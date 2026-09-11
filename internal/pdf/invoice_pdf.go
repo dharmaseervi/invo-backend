@@ -364,7 +364,7 @@ func (g *TallyInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	pdf.Cell(40, 4, "GST SUMMARY")
 
 	rowY := y + 8
-	g.taxRow(marginL+2, rowY, "Taxable Amount", inv.Subtotal)
+	g.taxRow(marginL+2, rowY, "Taxable Amount", inv.TaxableValue())
 	rowY += 6
 	for _, row := range taxRows {
 		g.taxRow(marginL+2, rowY, row.Label, row.Amount)
