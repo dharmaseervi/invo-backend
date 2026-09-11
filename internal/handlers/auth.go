@@ -154,6 +154,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 	if err != nil {
+		log.Println("login: failed to load user:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Login process failed"})
 		return
 	}

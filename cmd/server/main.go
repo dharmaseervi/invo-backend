@@ -145,8 +145,13 @@ func main() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
 	}
 
+	// HEAD as well as GET: Next.js probes routes with HEAD when prefetching a link, and
+	// a GET-only route answers those with 404 — which reads as a broken app to anything
+	// that checks a page exists before fetching it.
 	r.GET("/app", func(c *gin.Context) { serveWeb(c, "/") })
+	r.HEAD("/app", func(c *gin.Context) { serveWeb(c, "/") })
 	r.GET("/app/*filepath", func(c *gin.Context) { serveWeb(c, c.Param("filepath")) })
+	r.HEAD("/app/*filepath", func(c *gin.Context) { serveWeb(c, c.Param("filepath")) })
 
 	r.NoRoute(func(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})

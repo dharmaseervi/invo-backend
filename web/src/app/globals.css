@@ -1,26 +1,49 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Mirrors the iOS design system so the two clients feel like one product:
+   violet accent, light neutral surfaces, generous radii. */
+@theme {
+  --color-accent: #7c3aed;
+  --color-accent-fg: #ffffff;
+  --color-surface: #ffffff;
+  --color-canvas: #f7f7f8;
+  --color-line: #e4e4e7;
+  --color-ink: #18181b;
+  --color-muted: #71717a;
+  --color-subtle: #f4f4f5;
+  --color-danger: #dc2626;
+  --color-success: #16a34a;
+  --color-warning: #d9960f;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/* Dark mode follows the system, as the iOS app does. Only the surface tokens move;
+   the accent stays put so branding is identical in both. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  @theme {
+    --color-surface: #17171a;
+    --color-canvas: #0b0b0d;
+    --color-line: #2a2a30;
+    --color-ink: #fafafa;
+    --color-muted: #a1a1aa;
+    --color-subtle: #1f1f23;
   }
 }
 
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  height: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Money and quantities line up column-wise when digits are the same width. */
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
