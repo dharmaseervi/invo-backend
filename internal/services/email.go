@@ -18,11 +18,44 @@ type EmailService struct {
 }
 
 func NewEmailService(apiKey, fromEmail, fromName string) *EmailService {
-	return &EmailService{
-		apiKey:    apiKey,
-		fromEmail: fromEmail,
-		fromName:  fromName,
+	s := &EmailService{
+		apiKey:    strings.TrimSpace(apiKey),
+		fromEmail: strings.TrimSpace(fromEmail),
+		fromName:  strings.TrimSpace(fromName),
 	}
+
+	// Reported once at startup so a misconfigured deployment is obvious from the first
+	// log line, instead of surfacing later as "Failed to send verification email" on
+	// every signup. The key itself is never logged — only whether one is present.
+	switch {
+	case s.configError() != nil:
+		log.Printf("email: MISCONFIGURED — %v. Signups, password resets and OTP login "+
+			"will all fail until this is set.", s.configError())
+	case strings.HasSuffix(s.fromEmail, "@resend.dev"):
+		log.Printf("email: WARNING — sending from %q, Resend's sandbox address. It only "+
+			"delivers to your own account address, so signups for real users will fail. "+
+			"Verify a domain and set EMAIL_FROM to an address on it.", s.fromEmail)
+	default:
+		log.Printf("email: configured, sending as %q <%s>", s.fromName, s.fromEmail)
+	}
+
+	return s
+}
+
+// configError reports why sending cannot work, before a request is made. Returning
+// this instead of calling Resend turns a remote 4xx into a message that names the
+// missing setting.
+func (s *EmailService) configError() error {
+	if s.apiKey == "" {
+		return fmt.Errorf("RESEND_API_KEY is not set")
+	}
+	if s.fromEmail == "" {
+		return fmt.Errorf("EMAIL_FROM is not set")
+	}
+	if !strings.Contains(s.fromEmail, "@") {
+		return fmt.Errorf("EMAIL_FROM %q is not an email address", s.fromEmail)
+	}
+	return nil
 }
 
 type resendAttachment struct {
@@ -39,6 +72,10 @@ type resendRequest struct {
 }
 
 func (s *EmailService) send(to, subject, html string, attachments []resendAttachment) error {
+	if err := s.configError(); err != nil {
+		return fmt.Errorf("email not configured: %w", err)
+	}
+
 	payload := resendRequest{
 		From:        fmt.Sprintf("%s <%s>", s.fromName, s.fromEmail),
 		To:          []string{to},
@@ -67,7 +104,10 @@ func (s *EmailService) send(to, subject, html string, attachments []resendAttach
 
 	if resp.StatusCode >= 400 {
 		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("resend %d: %s", resp.StatusCode, string(respBody))
+		// The sender is included because Resend's rejections ("domain is not verified",
+		// "invalid from address") only make sense next to the address that was used.
+		return fmt.Errorf("resend %d sending as %q to %q: %s",
+			resp.StatusCode, s.fromEmail, redactEmail(to), strings.TrimSpace(string(respBody)))
 	}
 
 	// Redacted: knowing a send succeeded is useful, keeping customer addresses in log
