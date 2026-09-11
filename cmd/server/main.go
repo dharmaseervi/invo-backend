@@ -26,11 +26,22 @@ func main() {
 
 	db, err := database.NewDatabase(cfg.GetDSN())
 
+	// Migrations are opt-out via RUN_MIGRATIONS=false.
+	//
+	// Running them on every boot is fine for a single instance but wrong for more than
+	// one: replicas race to migrate the same database, and every cold start pays for
+	// version-check round trips before it can serve a request. Defaults to true so
+	// existing deployments are unaffected; turn it off once migrations run as their own
+	// deploy step.
+	//
 	// Never log the DSN: it carries the database password, and application logs are
 	// retained and readable far more widely than the credential itself should be.
-	log.Println("🔄 Running database migrations...")
-
-	database.RunMigrations(cfg.GetDbUrl())
+	if os.Getenv("RUN_MIGRATIONS") != "false" {
+		log.Println("🔄 Running database migrations...")
+		database.RunMigrations(cfg.GetDbUrl())
+	} else {
+		log.Println("Skipping migrations (RUN_MIGRATIONS=false)")
+	}
 
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
