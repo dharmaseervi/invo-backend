@@ -3,6 +3,7 @@
 package handlers
 
 import (
+	"log"
 	"net/http"
 	"strconv"
 
@@ -142,6 +143,34 @@ func (h *DashboardHandler) GetDashboard(c *gin.Context) {
 	if prevRevenue > 0 {
 		resp.Revenue.ChangePercent =
 			((resp.Revenue.Total - prevRevenue) / prevRevenue) * 100
+	}
+
+	// Last seven days of revenue for the dashboard chart, which drew hardcoded bar
+	// heights before this existed. generate_series supplies the days so a day with no
+	// sales appears as a zero bar rather than being missing from the series, which
+	// would otherwise compress the axis and misrepresent the shape.
+	trendRows, err := h.db.DB.Query(`
+		SELECT TO_CHAR(d.day, 'YYYY-MM-DD'), COALESCE(SUM(i.total), 0)
+		FROM generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, INTERVAL '1 day') AS d(day)
+		LEFT JOIN invoices i
+		       ON i.invoice_date = d.day::date
+		      AND i.company_id = $1
+		      AND i.status NOT IN ('draft', 'cancelled')
+		GROUP BY d.day
+		ORDER BY d.day
+	`, companyID)
+	if err != nil {
+		log.Println("failed to load revenue trend:", err)
+	} else {
+		defer trendRows.Close()
+		for trendRows.Next() {
+			var point models.DailyRevenue
+			if err := trendRows.Scan(&point.Date, &point.Total); err != nil {
+				log.Println("failed to scan revenue trend:", err)
+				break
+			}
+			resp.Revenue.Trend = append(resp.Revenue.Trend, point)
+		}
 	}
 
 	c.JSON(http.StatusOK, resp)

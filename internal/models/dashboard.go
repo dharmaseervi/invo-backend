@@ -12,6 +12,14 @@ type DashboardResponse struct {
 type RevenueBlock struct {
 	Total         float64 `json:"total"`
 	ChangePercent float64 `json:"change_percent"`
+	// Trend is the last seven days of revenue, oldest first, so the dashboard chart
+	// can plot something real. It previously drew a hardcoded set of bar heights.
+	Trend []DailyRevenue `json:"trend"`
+}
+
+type DailyRevenue struct {
+	Date  string  `json:"date"` // YYYY-MM-DD
+	Total float64 `json:"total"`
 }
 
 type CountBlock struct {
