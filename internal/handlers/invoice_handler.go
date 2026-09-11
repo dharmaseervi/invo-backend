@@ -1331,3 +1331,116 @@ func (h *InvoiceHandler) DeleteInvoice(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Invoice deleted"})
 }
+
+// CancelInvoice voids an issued invoice. POST /api/v1/invoices/:id/cancel
+//
+// Both the GST and aging reports already exclude status 'cancelled', but nothing ever
+// set it, so a mistaken invoice was permanent and permanently in GSTR-1. Cancelling
+// rather than deleting keeps the number in the sequence, which is what a tax invoice
+// requires — a gap in the numbering is itself a compliance problem.
+//
+// Refused once money has moved against it: an invoice with payments must be reversed
+// with a credit note so the ledger keeps a record of what happened.
+func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
+	invoiceID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid invoice id"})
+		return
+	}
+	userID := c.GetInt("user_id")
+
+	tx, err := h.db.DB.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel invoice"})
+		return
+	}
+	defer tx.Rollback()
+
+	var status string
+	var companyID, clientID int64
+	var number string
+	var total float64
+	err = tx.QueryRow(`
+		SELECT status, company_id, client_id, invoice_number, total
+		FROM invoices WHERE id = $1 AND user_id = $2
+	`, invoiceID, userID).Scan(&status, &companyID, &clientID, &number, &total)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invoice not found"})
+		return
+	}
+	if err != nil {
+		log.Println("failed to load invoice for cancel:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel invoice"})
+		return
+	}
+
+	switch status {
+	case "cancelled":
+		c.JSON(http.StatusConflict, gin.H{"error": "This invoice is already cancelled"})
+		return
+	case "draft":
+		c.JSON(http.StatusConflict, gin.H{"error": "A draft invoice can be deleted rather than cancelled"})
+		return
+	case "paid", "partial":
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "This invoice has payments against it. Issue a credit note instead so the ledger records the reversal.",
+		})
+		return
+	}
+
+	// Stock was deducted when the invoice was issued, so cancelling puts it back, and
+	// the movement is logged rather than silently adjusted.
+	if _, err = tx.Exec(`
+		UPDATE items it
+		SET quantity = it.quantity + agg.total_qty
+		FROM (
+			SELECT item_id, SUM(qty) AS total_qty
+			FROM invoice_items WHERE invoice_id = $1 GROUP BY item_id
+		) agg
+		WHERE it.id = agg.item_id
+	`, invoiceID); err != nil {
+		log.Println("failed to restore stock on cancel:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel invoice"})
+		return
+	}
+
+	if _, err = tx.Exec(`
+		INSERT INTO stock_movements (item_id, company_id, user_id, movement_type, quantity_change, previous_quantity, new_quantity, reference, note)
+		SELECT it.id, $2, $3, 'adjustment', agg.total_qty, it.quantity - agg.total_qty, it.quantity, $4, 'Invoice cancelled'
+		FROM items it
+		JOIN (
+			SELECT item_id, SUM(qty) AS total_qty
+			FROM invoice_items WHERE invoice_id = $1 GROUP BY item_id
+		) agg ON agg.item_id = it.id
+	`, invoiceID, companyID, userID, number); err != nil {
+		log.Println("failed to log stock movements for cancel:", err)
+	}
+
+	if _, err = tx.Exec(`
+		UPDATE invoices SET status = 'cancelled', remaining_amount = 0, updated_at = NOW()
+		WHERE id = $1
+	`, invoiceID); err != nil {
+		log.Println("failed to mark invoice cancelled:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel invoice"})
+		return
+	}
+
+	// A credit entry cancels the original debit, so the client's running balance
+	// returns to where it was before the invoice was raised.
+	if err = h.LedgerService.AddEntryTx(
+		tx, companyID, clientID, "ADJUSTMENT", int64(invoiceID),
+		0, total, "Invoice "+number+" cancelled",
+	); err != nil {
+		log.Println("failed to write cancellation ledger entry:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel invoice"})
+		return
+	}
+
+	if err = tx.Commit(); err != nil {
+		log.Println("failed to commit invoice cancel:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel invoice"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Invoice cancelled"})
+}

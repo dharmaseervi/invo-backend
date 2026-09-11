@@ -104,6 +104,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// Client routes
 		protected.POST("/clients", clientHandler.CreateClient)
 		protected.GET("/companies/:companyId/clients", clientHandler.GetClients)
+		protected.PUT("/clients/:clientId", clientHandler.UpdateClient)
+		protected.DELETE("/clients/:clientId", clientHandler.DeleteClient)
 		protected.GET("/clients/:clientId/address", clientAddressHandler.GetClientAddress)
 		protected.POST("/clients/:clientId/address", clientAddressHandler.SaveClientAddress)
 		// invoices by client
@@ -130,6 +132,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/invoices/:id/issue", invoiceHandler.IssueInvoice)
 		protected.PUT("/invoices/:id/update", invoiceHandler.UpdateInvoice) // 👈 REQUIRED
 		protected.DELETE("/invoices/:id", invoiceHandler.DeleteInvoice)
+		protected.POST("/invoices/:id/cancel", invoiceHandler.CancelInvoice)
 
 		// Estimate / Quotation routes
 		protected.POST("/estimates", estimateHandler.CreateEstimate)
