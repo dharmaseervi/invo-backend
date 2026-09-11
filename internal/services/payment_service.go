@@ -60,9 +60,10 @@ func (s *PaymentService) RecordPaymentTx(
 			amount,
 			payment_method,
 			reference,
-			notes
+			notes,
+			payment_date
 		)
-		VALUES ($1,$2,$3,$4,$5,$6)
+		VALUES ($1,$2,$3,$4,$5,$6, COALESCE($7::date, CURRENT_DATE))
 		RETURNING id
 	`,
 		companyID,
@@ -71,6 +72,7 @@ func (s *PaymentService) RecordPaymentTx(
 		req.PaymentMethod,
 		req.Reference,
 		req.Notes,
+		req.PaymentDate,
 	).Scan(&paymentID)
 
 	if err != nil {

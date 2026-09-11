@@ -114,7 +114,61 @@ func (s *CreditNoteService) CreateTx(
 		}
 	}
 
-	// 6️⃣ Ledger entry
+	// 6️⃣ Put the returned goods back into stock.
+	//
+	// A return credit note previously touched only the ledger, so the customer's
+	// balance was corrected while the goods they sent back stayed missing from
+	// inventory. The movement is logged rather than silently adjusted, so the stock
+	// audit trail explains where the quantity came from.
+	if req.Type == "return" {
+		if _, err = tx.Exec(`
+			UPDATE items it
+			SET quantity = it.quantity + agg.total_qty
+			FROM (
+				SELECT item_id, SUM(qty) AS total_qty
+				FROM credit_note_items WHERE credit_note_id = $1 GROUP BY item_id
+			) agg
+			WHERE it.id = agg.item_id
+		`, cnID); err != nil {
+			return err
+		}
+
+		if _, err = tx.Exec(`
+			INSERT INTO stock_movements (item_id, company_id, user_id, movement_type, quantity_change, previous_quantity, new_quantity, reference, note)
+			SELECT it.id, $2, (SELECT user_id FROM companies WHERE id = $2),
+			       'adjustment', agg.total_qty, it.quantity - agg.total_qty, it.quantity, $3, 'Goods returned'
+			FROM items it
+			JOIN (
+				SELECT item_id, SUM(qty) AS total_qty
+				FROM credit_note_items WHERE credit_note_id = $1 GROUP BY item_id
+			) agg ON agg.item_id = it.id
+		`, cnID, companyID, creditNumber); err != nil {
+			return err
+		}
+	}
+
+	// 7️⃣ Reduce what the referenced invoice still owes.
+	//
+	// Without this the aging report kept showing the full amount as outstanding even
+	// after a full return, because it filters on remaining_amount > 0. Capped at the
+	// outstanding balance so a credit note larger than the invoice cannot drive it
+	// negative, and the status follows the new balance.
+	if req.InvoiceID != nil {
+		if _, err = tx.Exec(`
+			UPDATE invoices
+			SET remaining_amount = GREATEST(remaining_amount - $1, 0),
+			    status = CASE
+			        WHEN GREATEST(remaining_amount - $1, 0) <= 0 THEN 'paid'
+			        ELSE status
+			    END,
+			    updated_at = NOW()
+			WHERE id = $2 AND company_id = $3
+		`, total, *req.InvoiceID, companyID); err != nil {
+			return err
+		}
+	}
+
+	// 8️⃣ Ledger entry
 	narration := "Credit note issued"
 	if req.Type == "discount" {
 		narration = "Discount credit note issued"

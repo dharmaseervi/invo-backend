@@ -145,6 +145,23 @@ func GenerateGSTReport(db *sql.DB, companyID int64, start, end string) (*models.
 		hsnSummary = append(hsnSummary, *hsnByKey[key])
 	}
 
+	// CDNR: credit notes issued in the period. These were excluded entirely, so the
+	// return declared the full original supply even after goods came back — tax
+	// payable on value that was credited to the customer.
+	creditNotes, creditTotals, err := fetchCreditNotes(db, companyID, start, end, companyState)
+	if err != nil {
+		return nil, err
+	}
+
+	netSummary := models.GSTSummary{
+		InvoiceCount: summary.InvoiceCount,
+		TaxableValue: summary.TaxableValue - creditTotals.TaxableValue,
+		CGST:         summary.CGST - creditTotals.CGST,
+		SGST:         summary.SGST - creditTotals.SGST,
+		IGST:         summary.IGST - creditTotals.IGST,
+		Total:        summary.Total - creditTotals.Total,
+	}
+
 	return &models.GSTReportResponse{
 		Start:        start,
 		End:          end,
@@ -152,7 +169,77 @@ func GenerateGSTReport(db *sql.DB, companyID int64, start, end string) (*models.
 		Summary:      summary,
 		Invoices:     invoices,
 		HSNSummary:   hsnSummary,
+		CreditNotes:  creditNotes,
+		NetSummary:   netSummary,
 	}, nil
+}
+
+// fetchCreditNotes returns the period's credit notes and their combined tax, split the
+// same way invoices are: the place of supply decides CGST+SGST against IGST.
+func fetchCreditNotes(
+	db *sql.DB, companyID int64, start, end, companyState string,
+) ([]models.GSTCreditNoteRow, models.GSTSummary, error) {
+
+	var totals models.GSTSummary
+	rows, err := db.Query(`
+		SELECT cn.id, cn.credit_number, TO_CHAR(cn.credit_date, 'YYYY-MM-DD'),
+		       COALESCE(c.name, ''), COALESCE(ia.gst_number, ''), COALESCE(ia.state, ''),
+		       COALESCE(i.invoice_number, ''), COALESCE(cn.reason, ''),
+		       cn.subtotal, cn.tax, cn.total
+		FROM credit_notes cn
+		JOIN clients c ON c.id = cn.client_id
+		LEFT JOIN invoices i ON i.id = cn.invoice_id
+		LEFT JOIN invoice_addresses ia ON ia.invoice_id = cn.invoice_id AND ia.type = 'billing'
+		WHERE cn.company_id = $1
+		  AND cn.credit_date BETWEEN $2 AND $3
+		ORDER BY cn.credit_date, cn.id
+	`, companyID, start, end)
+	if err != nil {
+		return nil, totals, err
+	}
+	defer rows.Close()
+
+	list := []models.GSTCreditNoteRow{}
+	for rows.Next() {
+		var r models.GSTCreditNoteRow
+		var billingState string
+		var taxable, tax float64
+
+		if err := rows.Scan(
+			&r.CreditNoteID, &r.CreditNumber, &r.CreditDate,
+			&r.ClientName, &r.ClientGSTIN, &billingState,
+			&r.OriginalInvoice, &r.Reason,
+			&taxable, &tax, &r.Total,
+		); err != nil {
+			return nil, totals, err
+		}
+
+		r.TaxableValue = taxable
+
+		// Same place-of-supply rule the invoice side uses, including the fallback to
+		// the supplier's own state when it was never recorded.
+		trimmedCompany := strings.TrimSpace(companyState)
+		trimmedBilling := strings.TrimSpace(billingState)
+		intrastate := trimmedCompany == "" || trimmedBilling == "" ||
+			strings.EqualFold(trimmedCompany, trimmedBilling)
+
+		if intrastate {
+			r.CGST = tax / 2
+			r.SGST = tax / 2
+		} else {
+			r.IGST = tax
+		}
+
+		totals.TaxableValue += r.TaxableValue
+		totals.CGST += r.CGST
+		totals.SGST += r.SGST
+		totals.IGST += r.IGST
+		totals.Total += r.Total
+
+		list = append(list, r)
+	}
+
+	return list, totals, rows.Err()
 }
 
 func formatRate(rate float64) string {
