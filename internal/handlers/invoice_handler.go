@@ -5,6 +5,7 @@ import (
 	"fmt"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
+	"invo-server/internal/money"
 	"invo-server/internal/pdf"
 	"invo-server/internal/services"
 	utils "invo-server/internal/util"
@@ -173,27 +174,64 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		}
 	}
 
-	for _, item := range req.Items {
-		lineBase := item.Rate * float64(item.Qty)
-		lineAfterDiscount := lineBase - item.Discount
-		lineTax := lineAfterDiscount * (item.TaxRate / 100)
+	// Each line is computed once, in exact decimal, and reused for both the invoice
+	// totals and the invoice_items rows. Previously these were two separate float64
+	// loops that recomputed the same values independently, so the stored line rows and
+	// the stored invoice total could disagree by a paisa and the printed document would
+	// not add up.
+	type lineAmounts struct {
+		discount money.Amount // capped at the line value
+		net      money.Amount // after the line discount, before tax
+		tax      money.Amount
+		total    money.Amount // net + tax, what invoice_items.total stores
+	}
+	lines := make([]lineAmounts, 0, len(req.Items))
 
-		subtotal += lineAfterDiscount
-		taxTotal += lineTax
+	subtotalAmt, taxAmt := money.Zero(), money.Zero()
 
-		// insert invoice_items with lineTotal
+	for i, item := range req.Items {
+		if item.Qty <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("Line %d: quantity must be greater than zero", i+1),
+			})
+			return
+		}
+		if item.Rate < 0 || item.Discount < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("Line %d: rate and discount cannot be negative", i+1),
+			})
+			return
+		}
+
+		lineBase := money.FromFloat(item.Rate).MulQty(item.Qty).Round()
+
+		// Capped at the line value: an unchecked discount larger than the line produced
+		// a negative line total, a negative subtotal, and an invoice owing less than
+		// nothing. There was no validation on this at all.
+		lineDiscount := money.Min(money.FromFloat(item.Discount), lineBase)
+		net := lineBase.Sub(lineDiscount).Round()
+		tax := net.TaxAt(item.TaxRate)
+
+		lines = append(lines, lineAmounts{
+			discount: lineDiscount,
+			net:      net,
+			tax:      tax,
+			total:    net.Add(tax).Round(),
+		})
+		subtotalAmt = subtotalAmt.Add(net)
+		taxAmt = taxAmt.Add(tax)
 	}
 
-	preDiscountTotal := subtotal + taxTotal
+	preDiscountAmt := subtotalAmt.Add(taxAmt)
 
-	invoiceDiscount := req.Discount
-	if invoiceDiscount < 0 {
-		invoiceDiscount = 0
-	}
-	if invoiceDiscount > preDiscountTotal {
-		invoiceDiscount = preDiscountTotal
-	}
-	grandTotal := preDiscountTotal - invoiceDiscount
+	invoiceDiscountAmt := money.FromFloat(req.Discount).ClampNonNegative()
+	invoiceDiscountAmt = money.Min(invoiceDiscountAmt, preDiscountAmt)
+	grandTotalAmt := preDiscountAmt.Sub(invoiceDiscountAmt).Round()
+
+	subtotal = subtotalAmt.Float64()
+	taxTotal = taxAmt.Float64()
+	invoiceDiscount := invoiceDiscountAmt.Float64()
+	grandTotal := grandTotalAmt.Float64()
 
 	// 4️⃣ Parse dates
 	invDate, err := time.Parse("2006-01-02", req.InvoiceDate)
@@ -301,10 +339,13 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 	// 	return
 	// }
 
-	// 8️⃣ Insert invoice items
-	for _, item := range req.Items {
-		lineTotal := (item.Rate * float64(item.Qty)) - item.Discount
-		lineTotal += lineTotal * (item.TaxRate / 100)
+	// 8️⃣ Insert invoice items — using the amounts computed above, so the rows always
+	// reconstruct the invoice totals exactly.
+	for idx, item := range req.Items {
+		lineTotal := lines[idx].total.Float64()
+		// The capped discount, not what was sent: storing an over-large discount next
+		// to a floored total leaves a row where rate x qty - discount != total.
+		lineDiscount := lines[idx].discount.Float64()
 
 		_, err = tx.Exec(`
 			INSERT INTO invoice_items
@@ -315,7 +356,7 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 			item.ItemID,
 			item.Qty,
 			item.Rate,
-			item.Discount,
+			lineDiscount,
 			item.TaxRate,
 			lineTotal,
 		)
