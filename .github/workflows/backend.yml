@@ -1,0 +1,105 @@
+name: Backend
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# A newer push supersedes an in-flight run on the same branch.
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build, vet and test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Read from go.mod so the toolchain cannot drift from what builds locally.
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify dependencies are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum \
+            || (echo "::error::go.mod/go.sum are not tidy — run 'go mod tidy' and commit" && exit 1)
+
+      - run: go build ./...
+
+      - run: go vet ./...
+
+      # -race catches the data races that make money handling non-deterministic and
+      # are otherwise invisible until production.
+      - name: Test
+        run: go test -race -count=1 ./...
+
+  migrations:
+    name: Migrations apply from empty
+    runs-on: ubuntu-latest
+
+    # Every migration has been validated by hand against production so far. This makes
+    # it automatic, and proves the set still applies to a database with no history —
+    # which is what a new environment or a restored backup actually starts from.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: invo_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install migrate
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+      - name: Apply all migrations
+        run: migrate -path migrations -database "$DB" up
+        env:
+          DB: postgres://postgres:postgres@localhost:5432/invo_ci?sslmode=disable
+
+      - name: Roll every migration back, then forward again
+        # A down migration that does not work is only discovered when it is urgently
+        # needed. Running the full cycle proves both directions.
+        run: |
+          migrate -path migrations -database "$DB" down -all
+          migrate -path migrations -database "$DB" up
+        env:
+          DB: postgres://postgres:postgres@localhost:5432/invo_ci?sslmode=disable
+
+  vulnerabilities:
+    name: Dependency vulnerabilities
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: govulncheck
+        # Reports only vulnerabilities the code actually reaches, so this failing means
+        # a real exposure rather than noise from an unused corner of a dependency.
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
