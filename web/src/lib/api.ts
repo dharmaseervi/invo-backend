@@ -5,7 +5,12 @@
 // httpOnly cookie — every value rendered from the API must therefore go through
 // React's escaping, which it does, and none of it is ever passed to innerHTML.
 
-const BASE = "/api/v1";
+// Relative in production: the Go server hosts the API and this app on one origin, so
+// there is no CORS preflight and no host to configure. `next dev` serves the pages
+// without the API, so NEXT_PUBLIC_API_ORIGIN points those requests at a locally running
+// server — which then needs that dev origin in its own ALLOWED_ORIGINS. It is read at
+// build time and must stay unset in the production build.
+const BASE = (process.env.NEXT_PUBLIC_API_ORIGIN ?? "") + "/api/v1";
 const TOKEN_KEY = "invo_token";
 
 export class ApiError extends Error {
