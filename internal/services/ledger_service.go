@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"invo-server/internal/money"
 
 	"invo-server/internal/models"
 )
@@ -23,12 +24,17 @@ func (s *LedgerService) getLastBalanceTx(
 
 	var balance float64
 
+	// FOR UPDATE serialises concurrent entries for the same client. Without the lock,
+	// two payments recorded at once both read the same prior balance and both write
+	// "balance - amount", so one of them vanishes from the running total even though
+	// both rows exist.
 	err := tx.QueryRow(`
 		SELECT balance
 		FROM ledger_entries
 		WHERE company_id = $1 AND client_id = $2
 		ORDER BY id DESC
 		LIMIT 1
+		FOR UPDATE
 	`, companyID, clientID).Scan(&balance)
 
 	if err == sql.ErrNoRows {
@@ -54,7 +60,13 @@ func (s *LedgerService) AddEntryTx(
 		return err
 	}
 
-	newBalance := lastBalance + debit - credit
+	// Decimal: this balance is carried forward into every later entry, so a fraction of
+	// a paisa of float drift here compounds down the whole statement.
+	newBalance := money.FromFloat(lastBalance).
+		Add(money.FromFloat(debit)).
+		Sub(money.FromFloat(credit)).
+		Round().
+		Float64()
 
 	_, err = tx.Exec(`
 		INSERT INTO ledger_entries (

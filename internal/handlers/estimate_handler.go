@@ -72,23 +72,18 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 		}
 	}
 
-	var subtotal, taxTotal float64
-	for _, item := range req.Items {
-		lineBase := item.Rate * float64(item.Qty)
-		lineAfterDiscount := lineBase - item.Discount
-		subtotal += lineAfterDiscount
-		taxTotal += lineAfterDiscount * (item.TaxRate / 100)
+	// Same arithmetic invoices use: exact decimal, line discounts capped, and an
+	// estimate-level discount apportioned before tax. A quotation that does not match
+	// the invoice it becomes is worse than useless.
+	totals, calcErr := computeInvoiceTotals(req.Items, req.Discount)
+	if calcErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": calcErr.Error()})
+		return
 	}
-
-	preDiscountTotal := subtotal + taxTotal
-	discount := req.Discount
-	if discount < 0 {
-		discount = 0
-	}
-	if discount > preDiscountTotal {
-		discount = preDiscountTotal
-	}
-	total := preDiscountTotal - discount
+	subtotal := totals.Subtotal.Float64()
+	taxTotal := totals.Tax.Float64()
+	discount := totals.Discount.Float64()
+	total := totals.Total.Float64()
 
 	estimateDate, err := time.Parse("2006-01-02", req.EstimateDate)
 	if err != nil {
@@ -150,14 +145,12 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 		return
 	}
 
-	for _, item := range req.Items {
-		lineTotal := (item.Rate * float64(item.Qty)) - item.Discount
-		lineTotal += lineTotal * (item.TaxRate / 100)
-
+	for idx, item := range req.Items {
 		_, err = tx.Exec(`
 			INSERT INTO estimate_items (estimate_id, item_id, qty, rate, discount, tax_rate, total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)
-		`, estimateID, item.ItemID, item.Qty, item.Rate, item.Discount, item.TaxRate, lineTotal)
+		`, estimateID, item.ItemID, item.Qty, item.Rate,
+			totals.Lines[idx].Discount.Float64(), item.TaxRate, totals.Lines[idx].Total.Float64())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add estimate items"})
 			return
@@ -232,14 +225,14 @@ func (h *EstimateHandler) GetEstimates(c *gin.Context) {
 	estimates := []gin.H{}
 	for rows.Next() {
 		var (
-			id, companyID, clientID          int
-			estimateNumber, status           string
-			estimateDate                     time.Time
-			expiryDate                       sql.NullTime
-			subtotal, tax, discount, total   float64
-			convertedInvoiceID               sql.NullInt64
-			createdAt                        time.Time
-			clientName                       string
+			id, companyID, clientID        int
+			estimateNumber, status         string
+			estimateDate                   time.Time
+			expiryDate                     sql.NullTime
+			subtotal, tax, discount, total float64
+			convertedInvoiceID             sql.NullInt64
+			createdAt                      time.Time
+			clientName                     string
 		)
 		if err := rows.Scan(
 			&id, &companyID, &clientID, &estimateNumber,
@@ -251,18 +244,18 @@ func (h *EstimateHandler) GetEstimates(c *gin.Context) {
 		}
 
 		row := gin.H{
-			"id":               id,
-			"company_id":       companyID,
-			"client_id":        clientID,
-			"client_name":      clientName,
-			"estimate_number":  estimateNumber,
-			"estimate_date":    estimateDate.Format("2006-01-02"),
-			"subtotal":         subtotal,
-			"tax":              tax,
-			"discount":         discount,
-			"total":            total,
-			"status":           status,
-			"created_at":       createdAt,
+			"id":              id,
+			"company_id":      companyID,
+			"client_id":       clientID,
+			"client_name":     clientName,
+			"estimate_number": estimateNumber,
+			"estimate_date":   estimateDate.Format("2006-01-02"),
+			"subtotal":        subtotal,
+			"tax":             tax,
+			"discount":        discount,
+			"total":           total,
+			"status":          status,
+			"created_at":      createdAt,
 		}
 		if expiryDate.Valid {
 			row["expiry_date"] = expiryDate.Time.Format("2006-01-02")
@@ -286,14 +279,14 @@ func (h *EstimateHandler) GetEstimateByID(c *gin.Context) {
 	estimateID := c.Param("id")
 
 	var (
-		id, clientID                    int
-		estimateNumber, status          string
-		estimateDate                    time.Time
-		expiryDate                      sql.NullTime
-		subtotal, tax, discount, total  float64
-		convertedInvoiceID              sql.NullInt64
-		createdAt                       time.Time
-		clientName                      string
+		id, clientID                   int
+		estimateNumber, status         string
+		estimateDate                   time.Time
+		expiryDate                     sql.NullTime
+		subtotal, tax, discount, total float64
+		convertedInvoiceID             sql.NullInt64
+		createdAt                      time.Time
+		clientName                     string
 	)
 
 	err := h.db.DB.QueryRow(`
@@ -415,21 +408,15 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 		return
 	}
 
-	var subtotal, taxTotal float64
-	for _, item := range req.Items {
-		lineAfterDiscount := (item.Rate * float64(item.Qty)) - item.Discount
-		subtotal += lineAfterDiscount
-		taxTotal += lineAfterDiscount * (item.TaxRate / 100)
+	totals, calcErr := computeInvoiceTotals(req.Items, req.Discount)
+	if calcErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": calcErr.Error()})
+		return
 	}
-	preDiscountTotal := subtotal + taxTotal
-	discount := req.Discount
-	if discount < 0 {
-		discount = 0
-	}
-	if discount > preDiscountTotal {
-		discount = preDiscountTotal
-	}
-	total := preDiscountTotal - discount
+	subtotal := totals.Subtotal.Float64()
+	taxTotal := totals.Tax.Float64()
+	discount := totals.Discount.Float64()
+	total := totals.Total.Float64()
 
 	estimateDate, err := time.Parse("2006-01-02", req.EstimateDate)
 	if err != nil {
@@ -475,13 +462,12 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 		return
 	}
 
-	for _, item := range req.Items {
-		lineTotal := (item.Rate * float64(item.Qty)) - item.Discount
-		lineTotal += lineTotal * (item.TaxRate / 100)
+	for idx, item := range req.Items {
 		_, err = tx.Exec(`
 			INSERT INTO estimate_items (estimate_id, item_id, qty, rate, discount, tax_rate, total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)
-		`, estimateID, item.ItemID, item.Qty, item.Rate, item.Discount, item.TaxRate, lineTotal)
+		`, estimateID, item.ItemID, item.Qty, item.Rate,
+			totals.Lines[idx].Discount.Float64(), item.TaxRate, totals.Lines[idx].Total.Float64())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add estimate items"})
 			return
@@ -546,8 +532,8 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 
 	var (
 		companyID, clientID int
-		status               string
-		discount             float64
+		status              string
+		discount            float64
 	)
 	err = h.db.DB.QueryRow(`
 		SELECT company_id, client_id, status, discount FROM estimates WHERE id = $1 AND user_id = $2
@@ -587,9 +573,6 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan estimate item"})
 			return
 		}
-		lineAfterDiscount := (li.rate * float64(li.qty)) - li.discount
-		subtotal += lineAfterDiscount
-		taxTotal += lineAfterDiscount * (li.tax / 100)
 		lines = append(lines, li)
 	}
 	if len(lines) == 0 {
@@ -597,11 +580,28 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 		return
 	}
 
-	preDiscountTotal := subtotal + taxTotal
-	if discount > preDiscountTotal {
-		discount = preDiscountTotal
+	// Run the estimate's lines through the invoice calculation, so the invoice a
+	// customer receives carries exactly the figures they accepted on the quotation.
+	convertItems := make([]models.InvoiceItemRequest, len(lines))
+	for i, li := range lines {
+		convertItems[i] = models.InvoiceItemRequest{
+			ItemID:   li.itemID,
+			Qty:      li.qty,
+			Rate:     li.rate,
+			Discount: li.discount,
+			TaxRate:  li.tax,
+		}
 	}
-	total := preDiscountTotal - discount
+
+	totals, calcErr := computeInvoiceTotals(convertItems, discount)
+	if calcErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": calcErr.Error()})
+		return
+	}
+	subtotal = totals.Subtotal.Float64()
+	taxTotal = totals.Tax.Float64()
+	discount = totals.Discount.Float64()
+	total := totals.Total.Float64()
 
 	tx, err := h.db.DB.Begin()
 	if err != nil {
@@ -647,13 +647,12 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 		return
 	}
 
-	for _, li := range lines {
-		lineTotal := (li.rate * float64(li.qty)) - li.discount
-		lineTotal += lineTotal * (li.tax / 100)
+	for idx, li := range lines {
 		_, err = tx.Exec(`
 			INSERT INTO invoice_items (invoice_id, item_id, qty, rate, discount, tax_rate, total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)
-		`, invoiceID, li.itemID, li.qty, li.rate, li.discount, li.tax, lineTotal)
+		`, invoiceID, li.itemID, li.qty, li.rate,
+			totals.Lines[idx].Discount.Float64(), li.tax, totals.Lines[idx].Total.Float64())
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to copy items to invoice"})
 			return

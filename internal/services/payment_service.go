@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"invo-server/internal/models"
-	"math"
+	"invo-server/internal/money"
 )
 
 type PaymentService struct {
@@ -37,14 +37,17 @@ func (s *PaymentService) RecordPaymentTx(
 		req.Allocations = allocations
 	}
 
-	// 2️⃣ Validate allocation total
-	var allocated float64
+	// 2️⃣ Validate allocation total.
+	//
+	// Exact equality, in decimal. The old check tolerated a paisa either way because
+	// float64 sums drift — but that tolerance silently accepted a genuine one-paisa
+	// mismatch, leaving the payment and its allocations permanently out of balance.
+	allocated := money.Zero()
 	for _, a := range req.Allocations {
-		allocated += a.Amount
+		allocated = allocated.Add(money.FromFloat(a.Amount))
 	}
 
-	// float-safe comparison
-	if math.Abs(allocated-req.Amount) > 0.01 {
+	if !allocated.Equal(money.FromFloat(req.Amount)) {
 		return errors.New("allocation total does not match payment amount")
 	}
 
@@ -100,7 +103,9 @@ func (s *PaymentService) RecordPaymentTx(
 			return errors.New("invoice is not open for payment")
 		}
 
-		if alloc.Amount > remaining {
+		// Decimal comparison: in float64 an allocation that exactly settles an invoice
+		// can compare as greater than the balance and be rejected outright.
+		if money.FromFloat(alloc.Amount).GreaterThan(money.FromFloat(remaining)) {
 			return errors.New("allocation exceeds invoice balance")
 		}
 
@@ -175,31 +180,32 @@ func (s *PaymentService) autoAllocateFIFO(
 	}
 	defer rows.Close()
 
-	remaining := amount
+	// Tracked in decimal. Accumulating this in float64 leaves a residue like 1e-13
+	// after the last invoice is settled, and the check below then reports a payment
+	// that exactly clears the balance as exceeding it.
+	remaining := money.FromFloat(amount)
 	allocations := []models.PaymentAllocationDTO{}
 
-	for rows.Next() && remaining > 0 {
+	for rows.Next() && remaining.GreaterThan(money.Zero()) {
 		var invoiceID int64
-		var due float64
+		var dueFloat float64
 
-		if err := rows.Scan(&invoiceID, &due); err != nil {
+		if err := rows.Scan(&invoiceID, &dueFloat); err != nil {
 			return nil, err
 		}
 
-		applied := due
-		if remaining < due {
-			applied = remaining
-		}
+		due := money.FromFloat(dueFloat)
+		applied := money.Min(remaining, due)
 
 		allocations = append(allocations, models.PaymentAllocationDTO{
 			InvoiceID: invoiceID,
-			Amount:    applied,
+			Amount:    applied.Float64(),
 		})
 
-		remaining -= applied
+		remaining = remaining.Sub(applied)
 	}
 
-	if remaining > 0 {
+	if remaining.GreaterThan(money.Zero()) {
 		return nil, errors.New("payment exceeds outstanding balance")
 	}
 
