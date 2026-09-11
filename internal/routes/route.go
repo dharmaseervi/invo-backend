@@ -112,6 +112,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/clients/:clientId/unpaid-invoices", invoiceHandler.GetUnpaidInvoices)
 		protected.POST("/invoices/:id/issue", invoiceHandler.IssueInvoice)
 		protected.PUT("/invoices/:id/update", invoiceHandler.UpdateInvoice) // 👈 REQUIRED
+		protected.DELETE("/invoices/:id", invoiceHandler.DeleteInvoice)
 
 		// Estimate / Quotation routes
 		protected.POST("/estimates", estimateHandler.CreateEstimate)

@@ -1269,3 +1269,81 @@ func (h *InvoiceHandler) GeneratePDFBytes(invoiceID string) ([]byte, string, err
 
 	return pdfBytes, pdfData.Invoice.InvoiceNumber, nil
 }
+
+// DeleteInvoice removes a draft invoice. DELETE /api/v1/invoices/:id
+//
+// Only drafts are deletable. An issued invoice has a number that has been given to a
+// customer and reported in GST returns, so it must be cancelled or credit-noted rather
+// than erased — silently removing one would leave a gap in the invoice sequence.
+func (h *InvoiceHandler) DeleteInvoice(c *gin.Context) {
+	invoiceID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid invoice id"})
+		return
+	}
+	userID := c.GetInt("user_id")
+
+	tx, err := h.db.DB.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete invoice"})
+		return
+	}
+	defer tx.Rollback()
+
+	var status string
+	err = tx.QueryRow(`
+		SELECT status FROM invoices WHERE id = $1 AND user_id = $2
+	`, invoiceID, userID).Scan(&status)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invoice not found"})
+		return
+	}
+	if err != nil {
+		log.Println("failed to load invoice for delete:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete invoice"})
+		return
+	}
+
+	if status != "draft" {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "Only draft invoices can be deleted. Issue a credit note to reverse an issued invoice.",
+		})
+		return
+	}
+
+	// A draft should have none of these, but refusing is the only safe response if it
+	// does: money and ledger rows must never be orphaned, and deleting a ledger entry
+	// would invalidate the running balance of every entry recorded after it.
+	var referenced bool
+	err = tx.QueryRow(`
+		SELECT EXISTS(SELECT 1 FROM payment_allocations WHERE invoice_id = $1)
+		    OR EXISTS(SELECT 1 FROM credit_notes WHERE invoice_id = $1)
+		    OR EXISTS(SELECT 1 FROM ledger_entries WHERE source_type = 'INVOICE' AND source_id = $1)
+	`, invoiceID).Scan(&referenced)
+	if err != nil {
+		log.Println("failed to check invoice references:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete invoice"})
+		return
+	}
+	if referenced {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "This invoice has payments or ledger history against it and cannot be deleted.",
+		})
+		return
+	}
+
+	// invoice_items and invoice_addresses are ON DELETE CASCADE.
+	if _, err = tx.Exec(`DELETE FROM invoices WHERE id = $1`, invoiceID); err != nil {
+		log.Println("failed to delete invoice:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete invoice"})
+		return
+	}
+
+	if err = tx.Commit(); err != nil {
+		log.Println("failed to commit invoice delete:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete invoice"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Invoice deleted"})
+}
