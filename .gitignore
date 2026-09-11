@@ -14,3 +14,9 @@ tmp/
 
 # Generated invoice PDFs contain real customer data
 storage/
+
+# Web app build output — compiled during deploy, not committed
+web/node_modules/
+web/.next/
+web/out/
+static/app/

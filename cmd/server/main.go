@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -104,6 +105,52 @@ func main() {
 		c.File("./static/terms.html")
 	})
 	r.Static("/screenshots", "./public/screenshots")
+
+	// Web app, served from the same origin as the API so CORS never applies and there
+	// is no second service to deploy or pay for.
+	//
+	// Next.js exports a directory per route (trailingSlash), so /app/invoices is really
+	// static/app/invoices/index.html. Gin's Static cannot express that, hence the
+	// explicit resolver below.
+	const webRoot = "./static/app"
+
+	serveWeb := func(c *gin.Context, requested string) {
+		// Join through Clean and confirm the result is still inside webRoot: a request
+		// for /app/../../.env would otherwise escape and serve whatever it names.
+		target := filepath.Join(webRoot, filepath.Clean("/"+requested))
+		if !strings.HasPrefix(target, filepath.Clean(webRoot)+string(os.PathSeparator)) &&
+			target != filepath.Clean(webRoot) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+			return
+		}
+
+		// A file, then the directory's index.html, then the export's own 404 page —
+		// so a refresh deep in the app renders instead of falling through to the API.
+		if info, err := os.Stat(target); err == nil && !info.IsDir() {
+			c.File(target)
+			return
+		}
+		if index := filepath.Join(target, "index.html"); fileExists(index) {
+			c.File(index)
+			return
+		}
+		if notFound := filepath.Join(webRoot, "404.html"); fileExists(notFound) {
+			// Written directly rather than via c.File, which calls http.ServeFile and
+			// overwrites the status with 200 — a missing page must not report success.
+			if body, err := os.ReadFile(notFound); err == nil {
+				c.Data(http.StatusNotFound, "text/html; charset=utf-8", body)
+				return
+			}
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+	}
+
+	r.GET("/app", func(c *gin.Context) { serveWeb(c, "/") })
+	r.GET("/app/*filepath", func(c *gin.Context) { serveWeb(c, c.Param("filepath")) })
+
+	r.NoRoute(func(c *gin.Context) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Not found"})
+	})
 	// Health check for cron keep-alive. It pings the database, because a server that
 	// answers "ok" while its database is unreachable tells a load balancer to keep
 	// sending traffic it cannot serve.
@@ -175,4 +222,10 @@ func main() {
 	// Anything queued is lost once the process exits, so give it a moment.
 	observability.Flush()
 	log.Println("Server stopped")
+}
+
+// fileExists reports whether a regular file is present at path.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
