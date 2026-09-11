@@ -110,40 +110,43 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
-	// Find valid OTP
+	// Matched, expiry-checked and consumed in one statement. Selecting and then marking
+	// used separately let the same code be redeemed twice by two concurrent requests.
 	var otpID int
-	var expiresAt time.Time
 	err := h.db.DB.QueryRow(`
-		SELECT id, expires_at FROM otp_codes
-		WHERE email = $1 AND code = $2 AND used = FALSE
-		ORDER BY created_at DESC
-		LIMIT 1
-	`, req.Email, req.Code).Scan(&otpID, &expiresAt)
+		UPDATE otp_codes SET used = TRUE
+		WHERE id = (
+			SELECT id FROM otp_codes
+			WHERE email = $1 AND code = $2 AND used = FALSE AND expires_at > NOW()
+			ORDER BY created_at DESC
+			LIMIT 1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id
+	`, req.Email, req.Code).Scan(&otpID)
 
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid OTP"})
+		// Deliberately does not distinguish wrong from expired: doing so tells an
+		// attacker which addresses have codes outstanding.
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired OTP"})
 		return
 	}
 
-	// Check expiry
-	if time.Now().After(expiresAt) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "OTP has expired"})
-		return
-	}
-
-	// Mark as used
-	h.db.DB.Exec(`UPDATE otp_codes SET used = TRUE WHERE id = $1`, otpID)
-
-	// Get user
+	// Get user. is_verified is required here for the same reason password login
+	// requires it — otherwise OTP is a way around email verification entirely.
 	var userID int
 	var email string
+	var isVerified bool
 	err = h.db.DB.QueryRow(
-		`SELECT id, email FROM users WHERE email = $1`,
+		`SELECT id, email, COALESCE(is_verified, false) FROM users WHERE email = $1`,
 		req.Email,
-	).Scan(&userID, &email)
+	).Scan(&userID, &email, &isVerified)
 	if err != nil {
-
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "User not found"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired OTP"})
+		return
+	}
+	if !isVerified {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Please verify your email address first"})
 		return
 	}
 

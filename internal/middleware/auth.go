@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"database/sql"
 	"net/http"
 	"strings"
 	"sync"
@@ -12,8 +13,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// AuthMiddleware verifies JWT tokens in incoming requests
-func AuthMiddleware(jwtSecret []byte) gin.HandlerFunc {
+// AuthMiddleware verifies JWT tokens in incoming requests.
+//
+// db is used to honour token revocation: a JWT cannot be withdrawn once signed, so
+// logout and password reset record a cutoff on the user and anything issued before it
+// is refused here. That costs one primary-key lookup per request, which is the price
+// of being able to invalidate a stolen token before it expires on its own.
+func AuthMiddleware(jwtSecret []byte, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get Authorization header
 		authHeader := c.GetHeader("Authorization")
@@ -86,6 +92,36 @@ func AuthMiddleware(jwtSecret []byte) gin.HandlerFunc {
 			return
 		}
 		c.Set("email", email)
+
+		issuedAt, ok := claims["iat"].(float64)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.Abort()
+			return
+		}
+
+		var validFrom time.Time
+		switch err := db.QueryRow(
+			`SELECT tokens_valid_from FROM users WHERE id = $1`, userID,
+		).Scan(&validFrom); {
+		case err == sql.ErrNoRows:
+			// The account was deleted while a token was still in circulation.
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.Abort()
+			return
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify session"})
+			c.Abort()
+			return
+		}
+
+		// Second granularity: iat is whole seconds, so a token minted in the same second
+		// as the cutoff must still be honoured or a fresh login could reject itself.
+		if int64(issuedAt) < validFrom.Unix() {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session ended, please sign in again"})
+			c.Abort()
+			return
+		}
 
 		c.Next()
 	}

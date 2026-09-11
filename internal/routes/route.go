@@ -67,7 +67,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 
 	// Protected routes
 	protected := r.Group("/api/v1")
-	protected.Use(middleware.AuthMiddleware([]byte(cfg.JWT.Secret)))
+	protected.Use(middleware.AuthMiddleware([]byte(cfg.JWT.Secret), db.DB))
 	{
 		protected.POST("/refresh-token", authHandler.RefreshToken)
 		protected.POST("/logout", authHandler.Logout)

@@ -318,10 +318,19 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
+	// The auth middleware rejects any token without an email claim, so omitting it here
+	// produced a refreshed token that could not call a single protected route.
+	email := c.GetString("email")
+	if email == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
 	// Generate new token
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"user_id": userID,
+		"email":   email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(h.tokenExpiration).Unix(),
 	}
@@ -342,11 +351,21 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 // Logout endpoint (optional - useful for client-side cleanup)
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// Since JWT is stateless, server-side logout isn't needed
-	// However, we can return instructions for the client
+	// Dropping the token client-side is not enough: a copy taken from the device stays
+	// valid until it expires. Moving the cutoff forward refuses every token already
+	// issued to this user, so logging out actually ends the session.
+	if userID, exists := c.Get("user_id"); exists {
+		if _, err := h.db.DB.Exec(
+			`UPDATE users SET tokens_valid_from = NOW() WHERE id = $1`, userID,
+		); err != nil {
+			log.Println("failed to revoke tokens on logout:", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to log out"})
+			return
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"message":      "Successfully logged out",
-		"instructions": "Please remove the token from your client storage",
+		"message": "Successfully logged out",
 	})
 }
 
@@ -506,9 +525,11 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	// Update password
+	// Update password, and cut off every token issued before it. A password reset is
+	// how someone recovers a compromised account, so it has to boot any session the
+	// attacker still holds rather than leaving them signed in.
 	_, err = h.db.DB.Exec(
-		`UPDATE users SET password_hash = $1 WHERE email = $2`,
+		`UPDATE users SET password_hash = $1, tokens_valid_from = NOW() WHERE email = $2`,
 		hashedPassword, req.Email,
 	)
 	if err != nil {
