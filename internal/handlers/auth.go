@@ -103,20 +103,31 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return // ← ADD THIS!
 	}
 
-	// Send verification email
-	err = h.emailService.SendVerificationEmail(user.Email, code)
-	if err != nil {
+	// Send verification email.
+	//
+	// A failure here must not fail the signup. The account row is already written, so
+	// returning 500 left the user with an account they could neither verify nor
+	// re-register — retrying just returned "Email already registered", a dead end with
+	// no way forward. Signup succeeds, the client is told the code did not go out, and
+	// the existing resend endpoint covers the retry.
+	emailSent := true
+	if err = h.emailService.SendVerificationEmail(user.Email, code); err != nil {
 		log.Printf("Email error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send verification email"})
-		return // ← ADD THIS!
+		emailSent = false
+	}
+
+	message := "Account created! Check your email for verification code."
+	if !emailSent {
+		message = "Account created, but we couldn't send the verification code. Tap resend to try again."
 	}
 
 	// ✅ Only ONE response at the end
 	c.JSON(http.StatusCreated, gin.H{
-		"message":               "Account created! Check your email for verification code.",
+		"message":               message,
 		"user_id":               id,
 		"email":                 user.Email,
 		"requires_verification": true,
+		"email_sent":            emailSent,
 	})
 }
 
