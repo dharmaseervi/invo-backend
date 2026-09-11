@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"encoding/base64"
+	"fmt"
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
 	"invo-server/internal/services"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
@@ -123,16 +126,59 @@ func (h *itemHandler) GetItems(c *gin.Context) {
 		return
 	}
 
-	// Fetch items
-	rows, err := h.db.DB.Query(`
-        SELECT 
-        id, name, category_id, sku, unit, description,
-        cost_price, price, quantity, low_stock_alert, tax_rate,
-        hsn_code, company_id, user_id, created_at, updated_at
-FROM items
-WHERE company_id = $1
-    `, companyID)
+	// limit is optional. Omitted means "everything", which keeps already-installed app
+	// versions working; a client that sends it gets a page and a cursor for the next.
+	rawLimit := mustAtoi(c.Query("limit"))
+	paginated := rawLimit > 0
+	limit := clampPageSize(rawLimit, maxPageSize)
 
+	search := strings.TrimSpace(c.Query("search"))
+
+	// Keyset, not OFFSET. Ordering is by name, and with OFFSET an item renamed or added
+	// while the user scrolls shifts every later page, so rows get skipped or repeated.
+	// The cursor carries the last row's (name, id), and (name, id) is unique and stable.
+	cursorName, cursorID, cursorOK := decodeItemCursor(c.Query("cursor"))
+
+	// COALESCE on every nullable column. Scanning a NULL into a plain string or int
+	// fails, and because the old loop ignored scan errors, any item missing a unit, SKU,
+	// HSN code or cost price was quietly dropped from the catalogue. category_id stays
+	// nullable in the model, since "no category" is meaningful and 0 is not a category.
+	query := `
+        SELECT
+        id, name, category_id,
+        COALESCE(sku, ''), COALESCE(unit, ''), COALESCE(description, ''),
+        COALESCE(cost_price, 0), price, COALESCE(quantity, 0),
+        COALESCE(low_stock_alert, 0), COALESCE(tax_rate, 0),
+        COALESCE(hsn_code, ''), company_id, user_id, created_at, updated_at
+        FROM items
+        WHERE company_id = $1
+    `
+	args := []interface{}{companyID}
+	pos := 2
+
+	if search != "" {
+		// Matches name or SKU: at a thousand products a user searches for what is on
+		// the label, which is as often the code as the name.
+		query += fmt.Sprintf(" AND (name ILIKE $%d OR COALESCE(sku, '') ILIKE $%d)", pos, pos)
+		args = append(args, "%"+search+"%")
+		pos++
+	}
+
+	if cursorOK {
+		query += fmt.Sprintf(" AND (name, id) > ($%d, $%d)", pos, pos+1)
+		args = append(args, cursorName, cursorID)
+		pos += 2
+	}
+
+	query += " ORDER BY name, id"
+
+	if paginated {
+		// One extra row reveals whether a further page exists without a second query.
+		query += fmt.Sprintf(" LIMIT $%d", pos)
+		args = append(args, limit+1)
+	}
+
+	rows, err := h.db.DB.Query(query, args...)
 	if err != nil {
 		log.Println("failed to fetch items:", err)
 		c.JSON(500, gin.H{"error": "Failed to fetch items"})
@@ -144,7 +190,6 @@ WHERE company_id = $1
 
 	for rows.Next() {
 		var item models.Item
-		// ✅ New Scan
 		if err := rows.Scan(
 			&item.ID, &item.Name, &item.CategoryID,
 			&item.SKU, &item.Unit, &item.Description,
@@ -153,12 +198,56 @@ WHERE company_id = $1
 			&item.HSNCode,
 			&item.CompanyID, &item.UserID,
 			&item.CreatedAt, &item.UpdatedAt,
-		); err == nil {
-			items = append(items, item)
+		); err != nil {
+			// Previously a scan error skipped the row silently, so an item simply
+			// disappeared from the list with no indication anything had gone wrong.
+			log.Println("failed to scan item:", err)
+			c.JSON(500, gin.H{"error": "Failed to fetch items"})
+			return
 		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		log.Println("failed to read items:", err)
+		c.JSON(500, gin.H{"error": "Failed to fetch items"})
+		return
 	}
 
-	c.JSON(200, gin.H{"items": items})
+	response := gin.H{"items": items}
+
+	if paginated && len(items) > limit {
+		items = items[:limit]
+		last := items[len(items)-1]
+		response["items"] = items
+		response["next_cursor"] = encodeItemCursor(last.Name, last.ID)
+	}
+
+	c.JSON(200, response)
+}
+
+// Cursors are opaque to the client on purpose: it should hand back whatever it was
+// given rather than construct one, so the ordering can change without breaking clients.
+func encodeItemCursor(name string, id int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%s\x1f%d", name, id)))
+}
+
+func decodeItemCursor(raw string) (string, int, bool) {
+	if raw == "" {
+		return "", 0, false
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return "", 0, false
+	}
+	parts := strings.SplitN(string(decoded), "\x1f", 2)
+	if len(parts) != 2 {
+		return "", 0, false
+	}
+	id, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return "", 0, false
+	}
+	return parts[0], id, true
 }
 
 // UpdateItem handles editing an existing item (name, stock, pricing, etc.)
@@ -182,14 +271,14 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 
 	// CreateItem validates this; UpdateItem did not, so an item could be re-pointed at
 	// another tenant's category and leak its name back through every item read.
-	if request.CategoryID != 0 {
+	if request.CategoryID != nil && *request.CategoryID != 0 {
 		var categoryOK bool
 		if err := h.db.DB.QueryRow(`
 			SELECT EXISTS(
 				SELECT 1 FROM categories
 				WHERE id = $1 AND user_id = $2 AND company_id = $3
 			)
-		`, request.CategoryID, userID, companyID).Scan(&categoryOK); err != nil || !categoryOK {
+		`, *request.CategoryID, userID, companyID).Scan(&categoryOK); err != nil || !categoryOK {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Invalid or unauthorized category"})
 			return
 		}
@@ -253,10 +342,12 @@ func (h *itemHandler) GetItemByID(c *gin.Context) {
 	var item models.Item
 
 	err := h.db.DB.QueryRow(`
-		SELECT 
-    id, name, category_id, sku, unit, description,
-    cost_price, price, quantity, low_stock_alert, tax_rate,
-    hsn_code, company_id, user_id, created_at, updated_at
+		SELECT
+    id, name, category_id,
+    COALESCE(sku, ''), COALESCE(unit, ''), COALESCE(description, ''),
+    COALESCE(cost_price, 0), price, COALESCE(quantity, 0),
+    COALESCE(low_stock_alert, 0), COALESCE(tax_rate, 0),
+    COALESCE(hsn_code, ''), company_id, user_id, created_at, updated_at
 FROM items
 WHERE id = $1 AND user_id = $2
 	`, itemID, userID).Scan(

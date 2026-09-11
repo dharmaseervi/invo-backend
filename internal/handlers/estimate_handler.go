@@ -176,10 +176,7 @@ func (h *EstimateHandler) GetEstimates(c *gin.Context) {
 	companyIDStr := c.Query("company_id")
 	clientIDStr := c.Query("client_id")
 
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
-	if limit <= 0 {
-		limit = 50
-	}
+	limit := clampPageSize(mustAtoi(c.DefaultQuery("limit", "50")), 50)
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	if offset < 0 {
 		offset = 0

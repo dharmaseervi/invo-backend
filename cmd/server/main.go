@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 )
 
@@ -98,6 +99,11 @@ func main() {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBytes)
 		c.Next()
 	})
+
+	// JSON list responses compress by roughly 70-80%. On a mobile connection that is a
+	// far larger win than any query tuning, and it costs one line. Excludes the static
+	// screenshot images, which are already compressed formats.
+	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/screenshots"})))
 
 	// ✅ Register all routes (moved out)
 	routes.RegisterRoutes(r, db, cfg)

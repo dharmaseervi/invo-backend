@@ -587,9 +587,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 	offsetStr := c.DefaultQuery("offset", "0")
 
 	limit, _ := strconv.Atoi(limitStr)
-	if limit <= 0 {
-		limit = 10
-	}
+	limit = clampPageSize(limit, 10)
 
 	offset, _ := strconv.Atoi(offsetStr)
 	if offset < 0 {
