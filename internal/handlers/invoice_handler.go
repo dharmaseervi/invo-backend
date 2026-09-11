@@ -536,9 +536,11 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 		return
 	}
 
-	for _, item := range req.Items {
-		lineTotal := (item.Rate * float64(item.Qty)) - item.Discount
-		lineTotal += lineTotal * (item.TaxRate / 100)
+	// Uses the amounts computed above, like creation does — recomputing here would
+	// reintroduce exactly the divergence between line rows and header this fixes.
+	for idx, item := range req.Items {
+		lineTotal := totals.Lines[idx].Total.Float64()
+		lineDiscount := totals.Lines[idx].Discount.Float64()
 
 		_, err = tx.Exec(`
 			INSERT INTO invoice_items
@@ -549,7 +551,7 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 			item.ItemID,
 			item.Qty,
 			item.Rate,
-			item.Discount,
+			lineDiscount,
 			item.TaxRate,
 			lineTotal,
 		)
