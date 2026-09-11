@@ -54,6 +54,24 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 		return
 	}
 
+	// CreateInvoice validates every referenced item; this path did not, so an estimate
+	// could cite another tenant's item ids and print their names in the generated PDF.
+	for _, item := range req.Items {
+		var itemExists bool
+		err = h.db.DB.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1 FROM items WHERE id = $1 AND user_id = $2 AND company_id = $3
+			)
+		`, item.ItemID, userID, req.CompanyID).Scan(&itemExists)
+		if err != nil || !itemExists {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "Invalid or unauthorized item",
+				"item_id": item.ItemID,
+			})
+			return
+		}
+	}
+
 	var subtotal, taxTotal float64
 	for _, item := range req.Items {
 		lineBase := item.Rate * float64(item.Qty)

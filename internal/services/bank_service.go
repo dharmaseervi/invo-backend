@@ -2,7 +2,6 @@ package services
 
 import (
 	"database/sql"
-	"fmt"
 	"invo-server/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -41,7 +40,7 @@ func GetCompanyBanks(db *sql.DB, companyID int, c *gin.Context) ([]models.Compan
 		return nil, err
 	}
 
-	fmt.Println(banks)
+	// Account numbers and IFSC codes must not reach application logs.
 	return banks, nil
 }
 
@@ -64,7 +63,15 @@ func CreateCompanyBank(db *sql.DB, b *models.CompanyBank) error {
 func UpdateCompanyBank(db *sql.DB, b *models.CompanyBank) error {
 
 	if b.IsDefault {
-		_, _ = db.Exec(`UPDATE company_bank_accounts SET is_default=false WHERE company_id=$1`, b.CompanyID)
+		// The company is read from the stored row, never from the request body: the
+		// caller is only authorised for this bank account, and trusting a body-supplied
+		// company_id let them clear the default bank of any company they named.
+		_, _ = db.Exec(`
+			UPDATE company_bank_accounts
+			SET is_default = false
+			WHERE company_id = (SELECT company_id FROM company_bank_accounts WHERE id = $1)
+			  AND id <> $1
+		`, b.ID)
 	}
 
 	_, err := db.Exec(`

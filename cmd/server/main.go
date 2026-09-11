@@ -18,7 +18,9 @@ func main() {
 
 	db, err := database.NewDatabase(cfg.GetDSN())
 
-	log.Println("🔄 Running database migrations... ", cfg.GetDbUrl())
+	// Never log the DSN: it carries the database password, and application logs are
+	// retained and readable far more widely than the credential itself should be.
+	log.Println("🔄 Running database migrations...")
 
 	database.RunMigrations(cfg.GetDbUrl())
 

@@ -73,8 +73,10 @@ func (s *PushService) RegisterToken(userID int, deviceToken string) error {
 }
 
 // UnregisterToken removes a device token (called on logout).
-func (s *PushService) UnregisterToken(deviceToken string) error {
-	_, err := s.db.Exec(`DELETE FROM device_tokens WHERE token = $1`, deviceToken)
+func (s *PushService) UnregisterToken(userID int, deviceToken string) error {
+	// Scoped to the owner: without user_id, anyone holding a token value could
+	// deregister another account's device and silently kill their notifications.
+	_, err := s.db.Exec(`DELETE FROM device_tokens WHERE token = $1 AND user_id = $2`, deviceToken, userID)
 	return err
 }
 

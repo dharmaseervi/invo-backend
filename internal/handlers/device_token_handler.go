@@ -46,7 +46,7 @@ func (h *DeviceTokenHandler) Unregister(c *gin.Context) {
 		return
 	}
 
-	if err := h.pushService.UnregisterToken(req.Token); err != nil {
+	if err := h.pushService.UnregisterToken(c.GetInt("user_id"), req.Token); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unregister device"})
 		return
 	}

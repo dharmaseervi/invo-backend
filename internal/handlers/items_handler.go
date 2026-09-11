@@ -180,6 +180,21 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 		SELECT quantity, company_id FROM items WHERE id = $1 AND user_id = $2
 	`, itemID, userID).Scan(&previousQuantity, &companyID)
 
+	// CreateItem validates this; UpdateItem did not, so an item could be re-pointed at
+	// another tenant's category and leak its name back through every item read.
+	if request.CategoryID != 0 {
+		var categoryOK bool
+		if err := h.db.DB.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM categories
+				WHERE id = $1 AND user_id = $2 AND company_id = $3
+			)
+		`, request.CategoryID, userID, companyID).Scan(&categoryOK); err != nil || !categoryOK {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Invalid or unauthorized category"})
+			return
+		}
+	}
+
 	result, err := h.db.DB.Exec(`
 		UPDATE items SET
 			name = $1, category_id = $2, sku = $3, unit = $4,

@@ -11,3 +11,6 @@ tmp/
 
 .idea/
 .vscode/
+
+# Generated invoice PDFs contain real customer data
+storage/

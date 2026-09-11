@@ -1,0 +1,24 @@
+# Secrets must never enter the build context: COPY . . would bake them into an
+# image layer, where they persist even if a later step deletes the file.
+.env
+.env.*
+!.env.example
+*.p8
+*.pem
+*.key
+
+# Customer data and local artifacts
+storage/
+public/screenshots/
+
+# VCS and local tooling
+.git
+.gitignore
+.github
+*.md
+Dockerfile
+.dockerignore
+
+# Build output
+main
+tmp/
