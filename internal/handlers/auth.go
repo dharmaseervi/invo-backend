@@ -88,9 +88,14 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	expiresAt := time.Now().Add(10 * time.Minute)
+	codeHash, err := hashOneTimeCode(code)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate OTP"})
+		return
+	}
 	_, err = h.db.DB.Exec(
 		`INSERT INTO otp_codes (email, code, expires_at) VALUES ($1, $2, $3)`,
-		user.Email, code, expiresAt,
+		user.Email, codeHash, expiresAt,
 	)
 	if err != nil {
 		log.Printf("OTP insert error: %v", err)
@@ -202,26 +207,11 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	}
 
 	// Check OTP
-	var otpID int
-	var expiresAt time.Time
-	err := h.db.DB.QueryRow(`
-        SELECT id, expires_at FROM otp_codes
-        WHERE email = $1 AND code = $2 AND used = FALSE
-        ORDER BY created_at DESC LIMIT 1
-    `, req.Email, req.Code).Scan(&otpID, &expiresAt)
-
-	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid OTP"})
+	if err := consumeOneTimeCode(h.db.DB, "otp_codes", req.Email, req.Code); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired OTP"})
 		return
 	}
-
-	if time.Now().After(expiresAt) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "OTP has expired"})
-		return
-	}
-
-	// Mark OTP used
-	h.db.DB.Exec(`UPDATE otp_codes SET used = TRUE WHERE id = $1`, otpID)
+	var err error
 
 	// Mark user as verified
 	_, err = h.db.DB.Exec(
@@ -299,9 +289,14 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	// Generate new OTP
 	code, _ := generateOTP()
 	expiresAt := time.Now().Add(10 * time.Minute)
+	resendHash, hashErr := hashOneTimeCode(code)
+	if hashErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate OTP"})
+		return
+	}
 	h.db.DB.Exec(
 		`INSERT INTO otp_codes (email, code, expires_at) VALUES ($1, $2, $3)`,
-		req.Email, code, expiresAt,
+		req.Email, resendHash, expiresAt,
 	)
 
 	h.emailService.SendVerificationEmail(req.Email, code)
@@ -465,9 +460,15 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	}
 
 	expiresAt := time.Now().Add(10 * time.Minute)
+	codeHash, err := hashOneTimeCode(code)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save reset code"})
+		return
+	}
+
 	_, err = h.db.DB.Exec(
 		`INSERT INTO password_reset_tokens (email, code, expires_at) VALUES ($1, $2, $3)`,
-		req.Email, code, expiresAt,
+		req.Email, codeHash, expiresAt,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save reset code"})
@@ -499,24 +500,13 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	// Check OTP
-	var tokenID int
-	var expiresAt time.Time
-	err := h.db.DB.QueryRow(`
-        SELECT id, expires_at FROM password_reset_tokens
-        WHERE email = $1 AND code = $2 AND used = FALSE
-        ORDER BY created_at DESC LIMIT 1
-    `, req.Email, req.Code).Scan(&tokenID, &expiresAt)
-
-	if err != nil {
+	// Reset codes are stored hashed and burned after too many wrong guesses, the same
+	// as login OTPs — this is the path an attacker would grind to take over an account.
+	if err := consumeOneTimeCode(h.db.DB, "password_reset_tokens", req.Email, req.Code); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired code"})
 		return
 	}
-
-	if time.Now().After(expiresAt) {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Reset code has expired"})
-		return
-	}
+	var err error
 
 	// Hash new password
 	hashedPassword, err := utils.HashPassword(req.NewPassword)
@@ -537,8 +527,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	// Mark token as used
-	h.db.DB.Exec(`UPDATE password_reset_tokens SET used = TRUE WHERE id = $1`, tokenID)
+	// The code was already consumed during verification, atomically.
 
 	// Generate JWT — log them in automatically
 	var userID int

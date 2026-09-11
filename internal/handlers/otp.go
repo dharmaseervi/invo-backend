@@ -77,9 +77,15 @@ func (h *OTPHandler) SendOTP(c *gin.Context) {
 
 	// Save to DB
 	expiresAt := time.Now().Add(10 * time.Minute)
+	codeHash, err := hashOneTimeCode(code)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate OTP"})
+		return
+	}
+
 	_, err = h.db.DB.Exec(
 		`INSERT INTO otp_codes (email, code, expires_at) VALUES ($1, $2, $3)`,
-		req.Email, code, expiresAt,
+		req.Email, codeHash, expiresAt,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save OTP"})
@@ -110,27 +116,13 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
-	// Matched, expiry-checked and consumed in one statement. Selecting and then marking
-	// used separately let the same code be redeemed twice by two concurrent requests.
-	var otpID int
-	err := h.db.DB.QueryRow(`
-		UPDATE otp_codes SET used = TRUE
-		WHERE id = (
-			SELECT id FROM otp_codes
-			WHERE email = $1 AND code = $2 AND used = FALSE AND expires_at > NOW()
-			ORDER BY created_at DESC
-			LIMIT 1
-			FOR UPDATE SKIP LOCKED
-		)
-		RETURNING id
-	`, req.Email, req.Code).Scan(&otpID)
-
-	if err != nil {
-		// Deliberately does not distinguish wrong from expired: doing so tells an
-		// attacker which addresses have codes outstanding.
+	// Codes are stored hashed, so verification compares against the newest live row
+	// and burns it after too many wrong guesses.
+	if err := consumeOneTimeCode(h.db.DB, "otp_codes", req.Email, req.Code); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired OTP"})
 		return
 	}
+	var err error
 
 	// Get user. is_verified is required here for the same reason password login
 	// requires it — otherwise OTP is a way around email verification entirely.
