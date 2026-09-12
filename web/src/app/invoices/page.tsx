@@ -145,20 +145,20 @@ export default function InvoicesPage() {
               >
                 <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-medium">
+                    <p className="truncate text-label-14 font-medium">
                       {inv.invoice_number || "Draft"}
                     </p>
                     <StatusBadge status={inv.status} overdue={inv.is_overdue} />
                   </div>
-                  <p className="mt-0.5 truncate text-sm text-muted">
+                  <p className="mt-0.5 truncate text-copy-13 text-muted">
                     {inv.client_name} · {formatDate(inv.invoice_date)}
                     {inv.is_overdue ? ` · ${inv.days_overdue} days overdue` : ""}
                   </p>
                 </div>
                 <div className="ml-auto text-right sm:w-32">
-                  <p className="tabular text-sm font-medium">{formatMoney(inv.total)}</p>
+                  <p className="tabular text-label-14 font-medium">{formatMoney(inv.total)}</p>
                   {inv.remaining_amount > 0 && inv.status !== "cancelled" && (
-                    <p className="tabular text-xs text-muted">
+                    <p className="tabular text-label-12 text-muted">
                       {formatMoney(inv.remaining_amount)} due
                     </p>
                   )}
@@ -177,7 +177,7 @@ export default function InvoicesPage() {
           <Button disabled={offset === 0} onClick={() => void load(Math.max(0, offset - PAGE))}>
             Previous
           </Button>
-          <span className="text-xs text-muted">
+          <span className="text-label-12 text-muted">
             {offset + 1}–{offset + rows.length}
           </span>
           <Button disabled={!hasMore} onClick={() => void load(offset + PAGE)}>
@@ -325,7 +325,7 @@ function InvoiceForm({
         <ErrorText>{error}</ErrorText>
 
         {preview && (
-          <p className="mb-4 text-xs text-muted">
+          <p className="mb-4 text-label-12 text-muted">
             Will be numbered <span className="font-medium text-ink">{preview}</span> when
             issued.
           </p>
@@ -562,7 +562,7 @@ function InvoiceDetailModal({
                         {l.item_name || `Item #${l.item_id}`}
                       </span>
                       {l.hsn_code && (
-                        <span className="ml-2 text-xs text-muted">HSN {l.hsn_code}</span>
+                        <span className="ml-2 text-label-12 text-muted">HSN {l.hsn_code}</span>
                       )}
                     </Td>
                     <Td align="right" className="tabular">
@@ -699,7 +699,7 @@ function EmailInvoiceModal({
           autoFocus
         />
         <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-        <label className="mb-4 flex items-start gap-2.5 rounded-lg border border-line bg-subtle/50 px-3 py-2.5 text-sm">
+        <label className="mb-4 flex items-start gap-2.5 rounded-[var(--radius-base)] border border-line bg-subtle/50 px-3 py-2.5 text-sm">
           <input
             type="checkbox"
             checked={reminder}
@@ -708,7 +708,7 @@ function EmailInvoiceModal({
           />
           <span>
             Send as a payment reminder
-            <span className="mt-0.5 block text-xs text-muted">
+            <span className="mt-0.5 block text-label-12 text-muted">
               Wording for an invoice that is already due, rather than a first send.
             </span>
           </span>

@@ -113,7 +113,7 @@ export default function CreditNotesPage() {
               >
                 <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-medium">{cn.credit_number}</p>
+                    <p className="truncate text-label-14 font-medium">{cn.credit_number}</p>
                     <Badge tone={cn.type === "return" ? "neutral" : "warning"}>
                       {cn.type === "return"
                         ? "Goods returned"
@@ -122,14 +122,14 @@ export default function CreditNotesPage() {
                           : "Adjustment"}
                     </Badge>
                   </div>
-                  <p className="mt-0.5 truncate text-sm text-muted">
+                  <p className="mt-0.5 truncate text-copy-13 text-muted">
                     {cn.client_name} · {formatDate(cn.credit_date)}
                   </p>
                 </div>
                 <div className="ml-auto text-right sm:w-32">
-                  <p className="tabular text-sm font-medium">{formatMoney(cn.total)}</p>
+                  <p className="tabular text-label-14 font-medium">{formatMoney(cn.total)}</p>
                   {cn.balance > 0 && (
-                    <p className="tabular text-xs text-muted">
+                    <p className="tabular text-label-12 text-muted">
                       {formatMoney(cn.balance)} unused
                     </p>
                   )}
@@ -396,7 +396,7 @@ function CreditNoteDetailModal({ id, onClose }: { id: number; onClose: () => voi
             <div className="overflow-x-auto">
               <table className="w-full min-w-[30rem] text-sm">
                 <thead>
-                  <tr className="border-b border-line text-left text-xs text-muted">
+                  <tr className="border-b border-line text-left text-label-12 text-muted">
                     <th className="py-2 font-medium">Item</th>
                     <th className="w-16 py-2 text-right font-medium">Qty</th>
                     <th className="w-24 py-2 text-right font-medium">Rate</th>

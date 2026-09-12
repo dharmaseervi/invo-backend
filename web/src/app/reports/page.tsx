@@ -84,7 +84,7 @@ function Filter({
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9.5 appearance-none rounded-lg border border-line bg-surface pl-3 pr-8 text-sm shadow-xs outline-none focus:border-accent"
+        className="h-10 appearance-none rounded-[var(--radius-base)] border border-line bg-surface pl-3 pr-8 text-label-14 outline-none focus:border-ink"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -208,7 +208,7 @@ function StockTab({ companyId }: { companyId: number }) {
                     <span className="inline-flex items-center gap-2">
                       <span className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-subtle sm:block">
                         <span
-                          className="block h-full rounded-full bg-accent"
+                          className="block h-full rounded-full bg-solid"
                           style={{ width: `${Math.min(c.share_of_value, 100)}%` }}
                         />
                       </span>
@@ -289,7 +289,7 @@ function StockTab({ companyId }: { companyId: number }) {
                   <tr key={i.id} className="transition hover:bg-subtle/60">
                     <Td>
                       <p className="font-medium">{i.name}</p>
-                      <p className="text-xs text-muted">
+                      <p className="text-label-12 text-muted">
                         {[i.sku, i.category_name].filter(Boolean).join(" · ")}
                       </p>
                     </Td>
@@ -314,7 +314,7 @@ function StockTab({ companyId }: { companyId: number }) {
           </div>
         )}
       </Card>
-      <p className="mt-3 text-xs text-muted">
+      <p className="mt-3 text-label-12 text-muted">
         {rows.length} of {report.total_items} items · as of {formatDate(report.as_of)}
       </p>
     </>
@@ -467,7 +467,7 @@ function AgingTab({ companyId }: { companyId: number }) {
           </div>
         )}
       </Card>
-      <p className="mt-3 text-xs text-muted">As of {formatDate(report.as_of)}</p>
+      <p className="mt-3 text-label-12 text-muted">As of {formatDate(report.as_of)}</p>
     </>
   );
 }
@@ -572,7 +572,7 @@ function GSTTab({ companyId }: { companyId: number }) {
             <Stat label="IGST" value={formatMoney(report.net_summary.igst)} />
           </div>
 
-          <p className="mb-5 text-xs text-muted">
+          <p className="mb-5 text-label-12 text-muted">
             Figures are net of {report.credit_notes.length} credit note
             {report.credit_notes.length === 1 ? "" : "s"} in the period. Place of supply is
             compared against {report.company_state || "your company's state"} to decide
@@ -637,11 +637,11 @@ function GSTTab({ companyId }: { companyId: number }) {
                       <tr key={i.invoice_id} className="transition hover:bg-subtle/60">
                         <Td>
                           <p className="font-medium">{i.invoice_number}</p>
-                          <p className="text-xs text-muted">{formatDate(i.invoice_date)}</p>
+                          <p className="text-label-12 text-muted">{formatDate(i.invoice_date)}</p>
                         </Td>
                         <Td>
                           <p className="truncate">{i.client_name}</p>
-                          <p className="text-xs text-muted">{i.place_of_supply || "—"}</p>
+                          <p className="text-label-12 text-muted">{i.place_of_supply || "—"}</p>
                         </Td>
                         <Td className="text-xs">
                           {i.client_gstin || <span className="text-muted">Unregistered</span>}

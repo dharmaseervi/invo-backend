@@ -221,7 +221,7 @@ function ClientDetail() {
             <CardHead
               title="Invoices"
               action={
-                <span className="text-xs text-muted">
+                <span className="text-label-12 text-muted">
                   {invoices.length} {invoices.length === 1 ? "invoice" : "invoices"}
                 </span>
               }
@@ -263,7 +263,7 @@ function ClientDetail() {
                         <tr key={inv.id} className="transition hover:bg-subtle/60">
                           <Td>
                             <p className="font-medium">{inv.invoice_number || "Draft"}</p>
-                            <p className="text-xs text-muted">
+                            <p className="text-label-12 text-muted">
                               {formatDate(inv.invoice_date)}
                             </p>
                           </Td>
@@ -333,10 +333,10 @@ function ClientDetail() {
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm">{e.description}</p>
-                        <p className="text-xs text-muted">{formatDate(e.created_at)}</p>
+                        <p className="text-label-12 text-muted">{formatDate(e.created_at)}</p>
                       </div>
                       <span
-                        className={`tabular text-sm font-medium ${
+                        className={`tabular text-label-14 font-medium ${
                           e.credit > 0 ? "text-success" : ""
                         }`}
                       >
@@ -398,11 +398,11 @@ function Detail({
   const shown = value?.trim();
   return (
     <div>
-      <dt className="text-xs text-muted">{label}</dt>
+      <dt className="text-label-12 text-muted">{label}</dt>
       <dd className={`mt-0.5 ${shown ? "" : "text-muted"} ${mono ? "tabular" : ""}`}>
         {shown || empty}
       </dd>
-      {hint && shown && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
+      {hint && shown && <p className="mt-0.5 text-label-12 text-muted">{hint}</p>}
     </div>
   );
 }

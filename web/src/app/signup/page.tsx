@@ -68,7 +68,7 @@ export default function SignupPage() {
         </Button>
       </form>
 
-      <p className="mt-5 text-center text-xs text-muted">
+      <p className="mt-5 text-center text-label-12 text-muted">
         By creating an account you agree to our{" "}
         <a href="/terms" className="text-accent hover:underline">
           Terms of Service

@@ -106,8 +106,8 @@ export default function PaymentsPage() {
                 className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
               >
                 <div className="min-w-0 flex-1 basis-full sm:basis-auto">
-                  <p className="truncate text-sm font-medium">{p.client_name}</p>
-                  <p className="mt-0.5 truncate text-sm text-muted">
+                  <p className="truncate text-label-14 font-medium">{p.client_name}</p>
+                  <p className="mt-0.5 truncate text-copy-13 text-muted">
                     {[
                       formatDate(p.payment_date),
                       p.payment_method,
@@ -120,7 +120,7 @@ export default function PaymentsPage() {
                       .join(" · ")}
                   </p>
                 </div>
-                <p className="tabular ml-auto text-right text-sm font-medium text-success sm:w-32">
+                <p className="tabular ml-auto text-right text-label-14 font-medium text-success sm:w-32">
                   {formatMoney(p.amount)}
                 </p>
               </li>
@@ -245,7 +245,7 @@ function PaymentForm({
         </Select>
 
         {clientId && (
-          <p className="-mt-2 mb-4 text-xs text-muted">
+          <p className="-mt-2 mb-4 text-label-12 text-muted">
             {open.length === 0
               ? "No open invoices for this client."
               : `${open.length} open invoice${open.length === 1 ? "" : "s"}, ${formatMoney(outstanding)} outstanding.`}
@@ -288,7 +288,7 @@ function PaymentForm({
           <Field label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
 
-        <p className="mb-2 text-xs text-muted">
+        <p className="mb-2 text-label-12 text-muted">
           Applied to the oldest open invoices first.
         </p>
 

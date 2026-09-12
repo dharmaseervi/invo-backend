@@ -57,7 +57,7 @@ export function ThemeToggle() {
     <div
       role="radiogroup"
       aria-label="Colour theme"
-      className="mb-1.5 flex rounded-lg border border-line bg-surface p-0.5"
+      className="mb-1.5 flex rounded-[var(--radius-base)] border border-line bg-surface p-0.5"
     >
       {options.map((o) => (
         <button
@@ -66,8 +66,8 @@ export function ThemeToggle() {
           role="radio"
           aria-checked={theme === o.id}
           onClick={() => choose(o.id)}
-          className={`flex-1 rounded-[7px] px-2 py-1 text-[11px] font-medium transition ${
-            theme === o.id ? "bg-accent-soft text-accent" : "text-muted hover:text-ink"
+          className={`flex-1 rounded-[4px] px-2 py-1 text-label-12 font-medium transition ${
+            theme === o.id ? "bg-subtle text-ink" : "text-muted hover:text-ink"
           }`}
         >
           {o.label}

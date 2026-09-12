@@ -127,18 +127,18 @@ export default function EstimatesPage() {
               >
                 <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-medium">{est.estimate_number}</p>
+                    <p className="truncate text-label-14 font-medium">{est.estimate_number}</p>
                     <StatusBadge
                       status={est.status}
                       converted={est.converted_invoice_id != null}
                     />
                   </div>
-                  <p className="mt-0.5 truncate text-sm text-muted">
+                  <p className="mt-0.5 truncate text-copy-13 text-muted">
                     {est.client_name} · {formatDate(est.estimate_date)}
                     {est.expiry_date ? ` · expires ${formatDate(est.expiry_date)}` : ""}
                   </p>
                 </div>
-                <p className="tabular ml-auto text-right text-sm font-medium sm:w-32">
+                <p className="tabular ml-auto text-right text-label-14 font-medium sm:w-32">
                   {formatMoney(est.total)}
                 </p>
                 <Button size="sm" onClick={() => setViewing(est.id)}>
@@ -279,7 +279,7 @@ function EstimateForm({
       <form onSubmit={submit} noValidate>
         <ErrorText>{error}</ErrorText>
         {preview && (
-          <p className="mb-4 text-xs text-muted">
+          <p className="mb-4 text-label-12 text-muted">
             Will be numbered <span className="font-medium text-ink">{preview}</span>.
           </p>
         )}
@@ -398,7 +398,7 @@ function EstimateDetailModal({
           <div className="overflow-x-auto">
             <table className="w-full min-w-[34rem] text-sm">
               <thead>
-                <tr className="border-b border-line text-left text-xs text-muted">
+                <tr className="border-b border-line text-left text-label-12 text-muted">
                   <th className="py-2 font-medium">Item</th>
                   <th className="w-16 py-2 text-right font-medium">Qty</th>
                   <th className="w-24 py-2 text-right font-medium">Rate</th>
@@ -521,7 +521,7 @@ function EstimateDetailModal({
           </div>
 
           {detail.converted_invoice_id != null && (
-            <p className="mt-4 text-right text-xs text-muted">
+            <p className="mt-4 text-right text-label-12 text-muted">
               Already converted to invoice #{detail.converted_invoice_id}.
             </p>
           )}

@@ -163,7 +163,7 @@ function CompanyForm({
           </Select>
           <Field label="Pincode" value={form.pincode} onChange={set("pincode")} />
         </div>
-        <p className="mb-4 text-xs text-muted">
+        <p className="mb-4 text-label-12 text-muted">
           These details print on every invoice as the seller.
         </p>
         <div className="flex justify-end">
@@ -220,10 +220,10 @@ function BanksCard({ companyId }: { companyId: number }) {
             <li key={b.id} className="flex items-center gap-4 py-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-medium">{b.bank_name}</p>
+                  <p className="truncate text-label-14 font-medium">{b.bank_name}</p>
                   {b.is_default && <Badge tone="success">Default</Badge>}
                 </div>
-                <p className="mt-0.5 truncate text-sm text-muted">
+                <p className="mt-0.5 truncate text-copy-13 text-muted">
                   {[b.account_number, b.ifsc_code, b.branch].filter(Boolean).join(" · ")}
                 </p>
               </div>

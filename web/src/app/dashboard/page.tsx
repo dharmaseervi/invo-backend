@@ -69,7 +69,7 @@ export default function DashboardPage() {
             aria-label="Period"
             value={period}
             onChange={(e) => setPeriod(e.target.value as Period)}
-            className="h-9.5 appearance-none rounded-lg border border-line bg-surface pl-3 pr-8 text-sm shadow-xs outline-none focus:border-accent"
+            className="h-10 appearance-none rounded-[var(--radius-base)] border border-line bg-surface pl-3 pr-8 text-label-14 outline-none focus:border-ink"
           >
             <option value="week">This week</option>
             <option value="month">This month</option>
@@ -154,8 +154,8 @@ export default function DashboardPage() {
                     className="flex items-center gap-4 px-5 py-3 transition hover:bg-subtle/60"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{inv.invoice_number}</p>
-                      <p className="truncate text-xs text-muted">
+                      <p className="truncate text-label-14 font-medium">{inv.invoice_number}</p>
+                      <p className="truncate text-label-12 text-muted">
                         {inv.client_name} · {formatDate(inv.created_at)}
                       </p>
                     </div>
@@ -174,7 +174,7 @@ export default function DashboardPage() {
                           than showing "issued" mid-sentence in a badge. */}
                       {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
                     </Badge>
-                    <p className="tabular w-28 text-right text-sm font-medium">
+                    <p className="tabular w-28 text-right text-label-14 font-medium">
                       {formatMoney(inv.total)}
                     </p>
                   </li>
@@ -201,7 +201,7 @@ function Trend({ trend }: { trend: { date: string; total: number }[] }) {
       <CardHead
         title="Last 7 days"
         action={
-          <span className="text-xs text-muted">Best day {formatMoney(best?.total ?? 0)}</span>
+          <span className="text-label-12 text-muted">Best day {formatMoney(best?.total ?? 0)}</span>
         }
       />
       <div className="px-5 py-5">
@@ -216,10 +216,10 @@ function Trend({ trend }: { trend: { date: string; total: number }[] }) {
                 {d.total > 0 ? formatMoney(d.total) : ""}
               </span>
               <div
-                className="w-full rounded-t-md bg-accent/25 transition group-hover:bg-accent/45"
+                className="w-full rounded-t-[4px] bg-subtle transition group-hover:bg-ds-gray-300"
                 style={{ height: `${Math.max((d.total / max) * 100, 2)}%` }}
               >
-                <div className="h-1 w-full rounded-t-md bg-accent" />
+                <div className="h-[3px] w-full rounded-t-[4px] bg-solid" />
               </div>
             </div>
           ))}

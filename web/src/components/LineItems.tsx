@@ -132,10 +132,10 @@ export function LineItems({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search an item by name or SKU to add it"
-          className="w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-accent"
+          className="w-full rounded-[var(--radius-base)] border border-line bg-surface px-3 py-2 text-label-14 outline-none transition-colors focus:border-ink"
         />
         {query.trim() && (
-          <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-line bg-surface shadow-lg">
+          <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-[var(--radius-card)] border border-line bg-raised shadow-lg">
             {searching && results.length === 0 ? (
               <div className="grid place-items-center py-4">
                 <Spinner className="h-4 w-4" />
@@ -175,7 +175,7 @@ export function LineItems({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[46rem] text-sm">
             <thead>
-              <tr className="border-b border-line text-left text-xs text-muted">
+              <tr className="border-b border-line text-left text-label-12 text-muted">
                 <th className="py-2 font-medium">Item</th>
                 <th className="w-20 py-2 text-right font-medium">Qty</th>
                 <th className="w-28 py-2 text-right font-medium">Rate</th>
@@ -251,7 +251,7 @@ export function LineItems({
                 value={discount}
                 onChange={(e) => onDiscountChange(e.target.value)}
                 aria-label="Invoice discount"
-                className="tabular w-28 rounded-lg border border-line bg-surface px-2 py-1 text-right outline-none focus:ring-2 focus:ring-accent"
+                className="tabular w-28 rounded-[var(--radius-base)] border border-line bg-surface px-2 py-1 text-right outline-none transition-colors focus:border-ink"
               />
             </dd>
           </div>
@@ -300,7 +300,7 @@ function NumCell({
       value={value}
       aria-label={label}
       onChange={(e) => onChange(e.target.value)}
-      className="tabular w-full rounded-lg border border-line bg-surface px-2 py-1 text-right outline-none focus:ring-2 focus:ring-accent"
+      className="tabular w-full rounded-[var(--radius-base)] border border-line bg-surface px-2 py-1 text-right outline-none transition-colors focus:border-ink"
     />
   );
 }

@@ -23,10 +23,15 @@ export function AuthShell({
     <div className="relative grid min-h-full place-items-center overflow-hidden p-5">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 opacity-[0.55]"
+        className="pointer-events-none absolute inset-0"
         style={{
-          background:
-            "radial-gradient(60rem 30rem at 50% -8rem, var(--color-accent-soft), transparent 70%)",
+          // A faint grid rather than a colour wash: the ruled page is the part of the
+          // Vercel aesthetic that carries, and it stays quiet behind the panel.
+          backgroundImage:
+            "linear-gradient(var(--color-line) 1px, transparent 1px), linear-gradient(90deg, var(--color-line) 1px, transparent 1px)",
+          backgroundSize: "64px 64px",
+          maskImage: "radial-gradient(40rem 28rem at 50% 30%, #000, transparent 75%)",
+          opacity: 0.5,
         }}
       />
 
@@ -36,20 +41,18 @@ export function AuthShell({
             href="/"
             className="inline-flex items-center gap-2.5 rounded-lg px-1 py-0.5"
           >
-            <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-accent text-base font-semibold text-accent-fg shadow-sm">
+            <span className="grid h-8 w-8 place-items-center rounded-[var(--radius-base)] bg-solid text-label-14 font-medium text-solid-fg">
               ₹
             </span>
-            <span className="text-[17px] font-semibold tracking-tight">Invo Billing</span>
+            <span className="text-heading-16">Invo Billing</span>
           </Link>
-          <h1 className="mt-5 text-[22px] font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-heading-24 mt-5">{title}</h1>
           {subtitle && (
-            <p className="mx-auto mt-1.5 max-w-[19rem] text-sm leading-relaxed text-muted">
-              {subtitle}
-            </p>
+            <p className="text-copy-14 mx-auto mt-2 max-w-[19rem] text-muted">{subtitle}</p>
           )}
         </div>
 
-        <Card className="p-6 shadow-md">{children}</Card>
+        <Card className="p-6">{children}</Card>
 
         {footer && <div className="mt-5 text-center text-sm">{footer}</div>}
       </div>

@@ -82,16 +82,16 @@ export function AppShell({
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2.5 px-4 py-4">
-        <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-[15px] font-semibold text-accent-fg">
+        <span className="grid h-7 w-7 place-items-center rounded-[var(--radius-base)] bg-solid text-[13px] font-medium text-solid-fg">
           ₹
         </span>
-        <span className="text-[15px] font-semibold tracking-tight">Invo Billing</span>
+        <span className="text-heading-16">Invo Billing</span>
       </div>
 
       <nav className="scroll-slim flex-1 overflow-y-auto px-2.5 pb-4">
         {NAV.map((section) => (
           <div key={section.group} className="mb-4">
-            <p className="px-2.5 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+            <p className="px-2.5 pb-1.5 text-label-12 font-medium text-muted">
               {section.group}
             </p>
             <ul className="space-y-0.5">
@@ -105,10 +105,10 @@ export function AppShell({
                       // not stay over the page it just navigated to.
                       onClick={() => setNavOpen(false)}
                       aria-current={active ? "page" : undefined}
-                      className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition ${
+                      className={`flex items-center gap-2.5 rounded-[var(--radius-base)] px-2.5 py-1.5 text-label-14 transition ${
                         active
-                          ? "bg-accent-soft font-medium text-accent"
-                          : "text-ink-soft hover:bg-subtle"
+                          ? "bg-subtle font-medium text-ink"
+                          : "text-muted hover:bg-subtle hover:text-ink"
                       }`}
                     >
                       <Icon name={tab.icon} className="h-4 w-4 shrink-0" />
@@ -130,7 +130,7 @@ export function AppShell({
               aria-label="Company"
               value={company?.id ?? ""}
               onChange={(e) => selectCompany(Number(e.target.value))}
-              className="w-full appearance-none rounded-lg border border-line bg-surface px-2.5 py-2 pr-8 text-[13px] outline-none focus:border-accent"
+              className="w-full appearance-none rounded-[var(--radius-base)] border border-line bg-surface px-2.5 py-1.5 pr-8 text-label-13 outline-none focus:border-ink"
             >
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -145,13 +145,13 @@ export function AppShell({
           </div>
         ) : (
           company && (
-            <p className="truncate px-2.5 pb-1.5 text-[13px] font-medium">{company.name}</p>
+            <p className="truncate px-2.5 pb-1.5 text-label-13 font-medium">{company.name}</p>
           )
         )}
         <button
           type="button"
           onClick={() => void signOut()}
-          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted transition hover:bg-subtle hover:text-ink"
+          className="flex w-full items-center gap-2.5 rounded-[var(--radius-base)] px-2.5 py-1.5 text-label-14 text-muted transition hover:bg-subtle hover:text-ink"
         >
           <Icon name="logout" className="h-4 w-4" />
           Sign out
@@ -163,7 +163,7 @@ export function AppShell({
   return (
     <div className="min-h-screen lg:flex">
       {/* Desktop rail */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-line bg-surface lg:block">
+      <aside className="sticky top-0 hidden h-screen w-[15rem] shrink-0 border-r border-line bg-surface lg:block">
         {sidebar}
       </aside>
 
@@ -183,20 +183,20 @@ export function AppShell({
       )}
 
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md">
+        <header className="sticky top-0 z-30 border-b border-line bg-canvas/80 backdrop-blur-md">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3.5 sm:px-6">
             <button
               type="button"
               onClick={() => setNavOpen(true)}
               aria-label="Open menu"
-              className="rounded-lg p-1.5 text-muted hover:bg-subtle hover:text-ink lg:hidden"
+              className="rounded-[var(--radius-base)] p-1.5 text-muted hover:bg-subtle hover:text-ink lg:hidden"
             >
               <Icon name="menu" className="h-5 w-5" />
             </button>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-lg font-semibold sm:text-xl">{title}</h1>
+              <h1 className="text-heading-20 truncate">{title}</h1>
               {description && (
-                <p className="mt-0.5 hidden truncate text-[13px] text-muted sm:block">
+                <p className="mt-0.5 hidden truncate text-copy-13 text-muted sm:block">
                   {description}
                 </p>
               )}
@@ -218,11 +218,11 @@ export function AppShell({
 export function NoCompany() {
   return (
     <Card className="px-6 py-16 text-center">
-      <div className="mx-auto mb-4 grid h-11 w-11 place-items-center rounded-full bg-subtle text-muted">
-        <Icon name="settings" className="h-5 w-5" />
+      <div className="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-[var(--radius-base)] border border-line bg-subtle text-muted">
+        <Icon name="settings" className="h-4 w-4" />
       </div>
-      <p className="text-sm font-semibold">No company yet</p>
-      <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-muted">
+      <p className="text-heading-16">No company yet</p>
+      <p className="mx-auto mt-1.5 max-w-sm text-copy-14 text-muted">
         Invoices, clients and items all belong to a company. Create yours to get started
         — its name, GSTIN and state are what every invoice prints as the seller.
       </p>

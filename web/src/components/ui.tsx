@@ -31,19 +31,19 @@ export function Button({
   ...rest
 }: ButtonProps) {
   const base =
-    "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg font-medium transition-[background,border,box-shadow,transform] duration-150 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45";
+    "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[var(--radius-base)] font-medium transition-[background,border-color,color] duration-150 disabled:pointer-events-none disabled:opacity-45";
   const sizes = {
-    sm: "h-8 px-2.5 text-[13px]",
-    md: "h-9.5 px-3.5 text-sm",
+    sm: "h-8 px-2.5 text-label-13",
+    md: "h-10 px-3.5 text-label-14",
   }[size];
   const variants = {
-    primary:
-      "bg-accent text-accent-fg shadow-xs hover:bg-accent-hover",
+    // Geist reserves hue for meaning; the primary action is the highest-contrast fill
+    // on the page, which is near-black in light and near-white in dark.
+    primary: "bg-solid text-solid-fg hover:bg-solid-hover",
     secondary:
-      "border border-line bg-surface text-ink-soft shadow-xs hover:border-line-strong hover:text-ink",
+      "border border-line bg-surface text-ink hover:border-line-strong hover:bg-subtle",
     ghost: "text-muted hover:bg-subtle hover:text-ink",
-    danger:
-      "border border-line bg-surface text-danger shadow-xs hover:border-danger/40 hover:bg-danger-soft",
+    danger: "border border-line bg-surface text-danger hover:border-danger hover:bg-danger-soft",
   }[variant];
 
   return (
@@ -74,7 +74,7 @@ export function IconButton({
       {...rest}
       aria-label={label}
       title={label}
-      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted transition hover:bg-subtle hover:text-ink ${className}`}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-base)] text-muted transition hover:bg-subtle hover:text-ink ${className}`}
     >
       <Icon name={icon} className="h-4 w-4" />
     </button>
@@ -83,12 +83,14 @@ export function IconButton({
 
 /* ---------- Inputs ---------- */
 
+// A Geist control is a hairline box: the border does the work, the focus state
+// darkens it rather than adding a glow.
 const fieldClass =
-  "w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink shadow-xs outline-none transition placeholder:text-muted/70 focus:border-accent focus:ring-[3px] focus:ring-accent/15 disabled:opacity-60";
+  "w-full rounded-[var(--radius-base)] border border-line bg-surface px-3 py-2 text-label-14 text-ink outline-none transition-colors placeholder:text-muted focus:border-ink disabled:opacity-60";
 
 function Label({ htmlFor, children }: { htmlFor: string; children: React.ReactNode }) {
   return (
-    <label htmlFor={htmlFor} className="mb-1.5 block text-[13px] font-medium text-ink-soft">
+    <label htmlFor={htmlFor} className="mb-1.5 block text-label-13 font-medium text-ink">
       {children}
     </label>
   );
@@ -96,7 +98,7 @@ function Label({ htmlFor, children }: { htmlFor: string; children: React.ReactNo
 
 function Hint({ children }: { children?: React.ReactNode }) {
   if (!children) return null;
-  return <p className="mt-1.5 text-xs leading-relaxed text-muted">{children}</p>;
+  return <p className="mt-1.5 text-copy-13 text-muted">{children}</p>;
 }
 
 type FieldProps = React.InputHTMLAttributes<HTMLInputElement> & {
@@ -191,7 +193,7 @@ export function SearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={`${fieldClass} pl-9 [&::-webkit-search-cancel-button]:appearance-none`}
+        className={`${fieldClass} h-10 pl-9 [&::-webkit-search-cancel-button]:appearance-none`}
       />
       {value && (
         <button
@@ -245,7 +247,7 @@ export function ErrorText({ children }: { children?: React.ReactNode }) {
   return (
     <p
       role="alert"
-      className="mb-4 flex items-start gap-2 rounded-lg border border-danger/25 bg-danger-soft px-3 py-2.5 text-sm text-danger"
+      className="mb-4 flex items-start gap-2 rounded-[var(--radius-base)] border border-danger/30 bg-danger-soft px-3 py-2.5 text-copy-14 text-danger"
     >
       <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
       <span>{children}</span>
@@ -266,7 +268,7 @@ export function Card({
 }) {
   return (
     <Tag
-      className={`rounded-[var(--radius-card)] border border-line bg-surface shadow-sm ${className}`}
+      className={`rounded-[var(--radius-card)] border border-line bg-surface ${className}`}
     >
       {children}
     </Tag>
@@ -283,7 +285,7 @@ export function CardHead({
 }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
-      <h2 className="text-sm font-semibold">{title}</h2>
+      <h2 className="text-heading-16">{title}</h2>
       {action}
     </div>
   );
@@ -302,11 +304,11 @@ export function EmptyState({
 }) {
   return (
     <div className="px-6 py-16 text-center">
-      <div className="mx-auto mb-4 grid h-11 w-11 place-items-center rounded-full bg-subtle text-muted">
-        <Icon name={icon} className="h-5 w-5" />
+      <div className="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-[var(--radius-base)] border border-line bg-subtle text-muted">
+        <Icon name={icon} className="h-4 w-4" />
       </div>
-      <p className="text-sm font-semibold">{title}</p>
-      <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-muted">{message}</p>
+      <p className="text-heading-16">{title}</p>
+      <p className="mx-auto mt-1.5 max-w-sm text-copy-14 text-muted">{message}</p>
       {action && <div className="mt-5 flex justify-center">{action}</div>}
     </div>
   );
@@ -334,7 +336,7 @@ export function Badge({
   };
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium leading-5 ${styles[tone]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-label-12 font-medium ${styles[tone]}`}
     >
       {dot && <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />}
       {children}
@@ -367,17 +369,17 @@ export function Stat({
   return (
     <Card className="p-4">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-[13px] text-muted">{label}</p>
+        <p className="text-label-13 text-muted">{label}</p>
         {icon && (
-          <span className="grid h-7 w-7 place-items-center rounded-lg bg-subtle text-muted">
-            <Icon name={icon} className="h-3.5 w-3.5" />
+          <span className="text-muted">
+            <Icon name={icon} className="h-4 w-4" />
           </span>
         )}
       </div>
-      <p className={`tabular mt-1.5 text-[22px] font-semibold leading-tight ${valueTone}`}>
+      <p className={`tabular mt-2 text-[24px] font-medium leading-8 ${valueTone}`}>
         {value}
       </p>
-      {sub && <div className="mt-1 text-xs text-muted">{sub}</div>}
+      {sub && <div className="mt-1 text-label-12 text-muted">{sub}</div>}
     </Card>
   );
 }
@@ -392,17 +394,15 @@ export function Tabs<T extends string>({
   onChange: (id: T) => void;
 }) {
   return (
-    <div className="inline-flex rounded-lg border border-line bg-surface p-0.5 shadow-xs">
+    <div className="inline-flex rounded-[var(--radius-base)] border border-line bg-surface p-0.5">
       {tabs.map((t) => (
         <button
           key={t.id}
           type="button"
           onClick={() => onChange(t.id)}
           aria-current={active === t.id ? "page" : undefined}
-          className={`rounded-[7px] px-3 py-1.5 text-[13px] font-medium transition ${
-            active === t.id
-              ? "bg-accent-soft text-accent"
-              : "text-muted hover:text-ink"
+          className={`rounded-[4px] px-3 py-1.5 text-label-13 font-medium transition ${
+            active === t.id ? "bg-subtle text-ink" : "text-muted hover:text-ink"
           }`}
         >
           {t.label}
@@ -443,7 +443,7 @@ export function Th({
   return (
     <th
       scope="col"
-      className={`whitespace-nowrap border-b border-line px-3 py-2.5 text-[11px] font-medium uppercase tracking-wide text-muted ${
+      className={`whitespace-nowrap border-b border-line px-3 py-2.5 text-label-12 font-medium text-muted ${
         align === "right" ? "text-right" : "text-left"
       } ${className}`}
     >
@@ -463,7 +463,7 @@ export function Td({
 }) {
   return (
     <td
-      className={`border-b border-line px-3 py-2.5 ${
+      className={`border-b border-line px-3 py-3 text-label-14 ${
         align === "right" ? "text-right" : ""
       } ${className}`}
     >
@@ -549,8 +549,10 @@ export function Modal({
       >
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
           <div>
-            <h2 className="text-[15px] font-semibold">{title}</h2>
-            {description && <p className="mt-0.5 text-xs text-muted">{description}</p>}
+            <h2 className="text-heading-16">{title}</h2>
+            {description && (
+              <p className="mt-0.5 text-copy-13 text-muted">{description}</p>
+            )}
           </div>
           <IconButton icon="close" label="Close" onClick={onClose} className="-mr-1" />
         </div>
@@ -594,12 +596,12 @@ export function Sheet({
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === "string" ? title : "Details"}
-        className="animate-slide-in flex h-full w-full max-w-2xl flex-col border-l border-line bg-raised shadow-lg"
+        className="animate-slide-in flex h-full w-full max-w-2xl flex-col border-l border-line bg-raised"
       >
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
           <div className="min-w-0">
-            <h2 className="truncate text-[15px] font-semibold">{title}</h2>
-            {subtitle && <div className="mt-1 text-xs text-muted">{subtitle}</div>}
+            <h2 className="truncate text-heading-16">{title}</h2>
+            {subtitle && <div className="mt-1.5 text-copy-13 text-muted">{subtitle}</div>}
           </div>
           <IconButton icon="close" label="Close" onClick={onClose} className="-mr-1" />
         </div>
@@ -655,12 +657,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           <div
             key={t.id}
             role="status"
-            className="animate-pop-in pointer-events-auto flex max-w-sm items-start gap-2.5 rounded-xl border border-line bg-raised px-3.5 py-3 text-sm shadow-lg"
+            className="animate-pop-in pointer-events-auto flex max-w-sm items-start gap-2.5 rounded-[var(--radius-card)] border border-line bg-raised px-3.5 py-3 text-copy-14 shadow-lg"
           >
             <span className={`mt-0.5 ${toneClass[t.tone]}`}>
               <Icon name={iconFor[t.tone]} className="h-4 w-4" />
             </span>
-            <span className="text-ink-soft">{t.message}</span>
+            <span className="text-ink">{t.message}</span>
           </div>
         ))}
       </div>

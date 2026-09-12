@@ -128,7 +128,7 @@ export default function LoginPage() {
         </form>
       )}
 
-      <div className="my-5 flex items-center gap-3 text-xs text-muted">
+      <div className="my-5 flex items-center gap-3 text-label-12 text-muted">
         <span className="h-px flex-1 bg-line" />
         or
         <span className="h-px flex-1 bg-line" />

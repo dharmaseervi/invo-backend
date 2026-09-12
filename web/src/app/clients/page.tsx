@@ -160,17 +160,17 @@ export default function ClientsPage() {
                 key={client.id}
                 className="group flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
               >
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-soft text-[13px] font-semibold uppercase text-accent">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line bg-subtle text-label-12 font-medium uppercase text-muted">
                   {client.name.trim().charAt(0) || "?"}
                 </span>
                 <Link
                   href={`/clients/view?id=${client.id}`}
                   className="min-w-0 flex-1"
                 >
-                  <p className="truncate text-sm font-medium hover:text-accent">
+                  <p className="truncate text-label-14 font-medium hover:text-accent">
                     {client.name}
                   </p>
-                  <p className="mt-0.5 truncate text-sm text-muted">
+                  <p className="mt-0.5 truncate text-copy-13 text-muted">
                     {[client.phone, client.email].filter(Boolean).join(" · ") ||
                       "No contact details"}
                   </p>
@@ -194,7 +194,7 @@ export default function ClientsPage() {
       </Card>
 
       {list.length > 0 && (
-        <p className="mt-3 text-xs text-muted">
+        <p className="mt-3 text-label-12 text-muted">
           {list.length} client{list.length === 1 ? "" : "s"}
         </p>
       )}

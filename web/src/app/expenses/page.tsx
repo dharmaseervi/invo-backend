@@ -115,12 +115,12 @@ export default function ExpensesPage() {
                 className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
               >
                 <div className="min-w-0 flex-1 basis-full sm:basis-auto">
-                  <p className="truncate text-sm font-medium">{e.name}</p>
-                  <p className="mt-0.5 truncate text-sm text-muted">
+                  <p className="truncate text-label-14 font-medium">{e.name}</p>
+                  <p className="mt-0.5 truncate text-copy-13 text-muted">
                     {[formatDate(e.date), e.description].filter(Boolean).join(" · ")}
                   </p>
                 </div>
-                <p className="tabular ml-auto text-right text-sm font-medium sm:w-28">
+                <p className="tabular ml-auto text-right text-label-14 font-medium sm:w-28">
                   {formatMoney(e.amount)}
                 </p>
                 <div className="flex items-center gap-1">

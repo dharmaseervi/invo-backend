@@ -1,127 +1,262 @@
 @import "tailwindcss";
 
 /*
-  Design tokens.
-
-  The palette is built around the iOS app's violet so the two clients read as one
-  product, but the neutrals are a proper ramp rather than a handful of greys: surfaces,
-  hairlines, raised panels and muted text each get their own token, which is what keeps
-  a dense table from turning into a wall of boxes.
+  Tokens follow the Geist design system (vercel.com/geist).
+  
+  Each colour is a ten-step scale with a fixed job per step, which is what keeps a
+  dense screen coherent without inventing a shade per component:
+  
+    100        default background
+    200        hover background
+    300        active background
+    400-600    borders — default, hover, active
+    700-800    high-contrast backgrounds (solid fills)
+    900-1000   text and icons
+  
+  Semantic aliases below map the app's vocabulary onto those steps, so a component
+  says `bg-surface` rather than `--ds-gray-100` and the scale stays the single source
+  of truth.
 */
 @theme {
-  /* Brand */
-  --color-accent: #6d28d9;
-  --color-accent-hover: #5b21b6;
+  /* --- Gray --------------------------------------------------------------- */
+  --color-ds-gray-100: #f2f2f2;
+  --color-ds-gray-200: #ebebeb;
+  --color-ds-gray-300: #e1e1e1;
+  --color-ds-gray-400: #cfcfcf;
+  --color-ds-gray-500: #c1c1c1;
+  --color-ds-gray-600: #8f8f8f;
+  --color-ds-gray-700: #8f8f8f;
+  --color-ds-gray-800: #7d7d7d;
+  --color-ds-gray-900: #666666;
+  --color-ds-gray-1000: #171717;
+
+  /* --- Accent (purple) ---------------------------------------------------- */
+  --color-ds-purple-100: #f9f1fe;
+  --color-ds-purple-200: #f6e9fd;
+  --color-ds-purple-300: #f0dcfc;
+  --color-ds-purple-400: #e5c8fa;
+  --color-ds-purple-500: #d4aff6;
+  --color-ds-purple-600: #a153e8;
+  --color-ds-purple-700: #8e4ec6;
+  --color-ds-purple-800: #8445bc;
+  --color-ds-purple-900: #7a3dad;
+  --color-ds-purple-1000: #46216c;
+
+  /* --- Semantic scales ---------------------------------------------------- */
+  --color-ds-blue-100: #edf5ff;
+  --color-ds-blue-300: #d2e5ff;
+  --color-ds-blue-600: #0072f5;
+  --color-ds-blue-900: #0060d1;
+  --color-ds-blue-1000: #00308f;
+
+  --color-ds-red-100: #fff0f0;
+  --color-ds-red-300: #ffcdce;
+  --color-ds-red-600: #ee0000;
+  --color-ds-red-900: #c50000;
+  --color-ds-red-1000: #6f0000;
+
+  --color-ds-amber-100: #fff6e5;
+  --color-ds-amber-300: #ffe3ab;
+  --color-ds-amber-600: #ffb224;
+  --color-ds-amber-900: #a35200;
+  --color-ds-amber-1000: #4e2009;
+
+  --color-ds-green-100: #effbef;
+  --color-ds-green-300: #b4f0c0;
+  --color-ds-green-600: #45a557;
+  --color-ds-green-900: #297c3b;
+  --color-ds-green-1000: #1b311e;
+
+  /* --- Backgrounds -------------------------------------------------------- */
+  --color-ds-background-100: #ffffff;
+  --color-ds-background-200: #fafafa;
+
+  /* --- Semantic aliases --------------------------------------------------- */
+  --color-canvas: var(--color-ds-background-200);
+  --color-surface: var(--color-ds-background-100);
+  --color-raised: var(--color-ds-background-100);
+  --color-subtle: var(--color-ds-gray-100);
+  --color-subtle-hover: var(--color-ds-gray-200);
+  --color-line: var(--color-ds-gray-400);
+  --color-line-strong: var(--color-ds-gray-500);
+  --color-ink: var(--color-ds-gray-1000);
+  --color-ink-soft: var(--color-ds-gray-900);
+  --color-muted: var(--color-ds-gray-900);
+
+  /* Primary action is the high-contrast fill, as Geist has it — the accent is
+     reserved for selection and links, where hue carries meaning. */
+  --color-solid: var(--color-ds-gray-1000);
+  --color-solid-hover: #383838;
+  --color-solid-fg: var(--color-ds-background-100);
+
+  --color-accent: var(--color-ds-purple-700);
+  --color-accent-hover: var(--color-ds-purple-800);
   --color-accent-fg: #ffffff;
-  --color-accent-soft: #f5f0ff;
-  --color-accent-border: #e0d3fb;
+  --color-accent-soft: var(--color-ds-purple-100);
+  --color-accent-border: var(--color-ds-purple-400);
 
-  /* Neutrals */
-  --color-canvas: #f7f7f9;
-  --color-surface: #ffffff;
-  --color-raised: #ffffff;
-  --color-subtle: #f2f2f5;
-  --color-line: #e6e6ec;
-  --color-line-strong: #d5d5de;
-  --color-ink: #16161d;
-  --color-ink-soft: #40404d;
-  --color-muted: #71717f;
+  --color-success: var(--color-ds-green-900);
+  --color-success-soft: var(--color-ds-green-100);
+  --color-danger: var(--color-ds-red-900);
+  --color-danger-soft: var(--color-ds-red-100);
+  --color-warning: var(--color-ds-amber-900);
+  --color-warning-soft: var(--color-ds-amber-100);
+  --color-info: var(--color-ds-blue-900);
+  --color-info-soft: var(--color-ds-blue-100);
 
-  /* Semantic */
-  --color-success: #067647;
-  --color-success-soft: #e7f6ee;
-  --color-danger: #c1121f;
-  --color-danger-soft: #fdecec;
-  --color-warning: #9a6200;
-  --color-warning-soft: #fdf3e2;
-  --color-info: #1d4ed8;
-  --color-info-soft: #eaf0ff;
+  /* --- Type --------------------------------------------------------------- */
+  /* Geist Sans and Geist Mono, self-hosted from the `geist` package: the files ship
+     inside it, so the Docker build never reaches the network for a font. */
+  --font-sans: var(--font-geist-sans), ui-sans-serif, -apple-system, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* Type. System stack on purpose: next/font/google fetches at build time, which
-     would make the Docker image depend on reaching Google. */
-  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter,
-    Roboto, "Helvetica Neue", Arial, sans-serif;
+  /* --- Materials ---------------------------------------------------------- */
+  /* Two radii, as Geist specifies: 6px for everyday surfaces and controls, 12px for
+     things that lift off the page. 16px is reserved for fullscreen. */
+  --radius-base: 6px;
+  --radius-card: 12px;
+  --radius-full: 16px;
 
-  /* Elevation — two soft layers rather than one hard one, so a raised panel reads as
-     lifted instead of outlined. */
-  --shadow-xs: 0 1px 2px rgba(16, 16, 24, 0.05);
-  --shadow-sm: 0 1px 2px rgba(16, 16, 24, 0.04), 0 1px 3px rgba(16, 16, 24, 0.06);
-  --shadow-md: 0 2px 4px rgba(16, 16, 24, 0.04), 0 6px 16px rgba(16, 16, 24, 0.08);
-  --shadow-lg: 0 8px 24px rgba(16, 16, 24, 0.10), 0 2px 6px rgba(16, 16, 24, 0.06);
-
-  --radius-card: 0.875rem;
+  /* Shadows are hairlines first and lift second — a Geist surface is defined by its
+     border, not by a glow. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.08), 0 2px 6px rgba(0, 0, 0, 0.06);
 }
 
 /*
-  Dark palette, as plain custom properties rather than a second @theme block: that is
-  what lets an explicit choice beat the system preference. The media query is skipped
-  when the user has asked for light, and the [data-theme="dark"] rule covers asking for
-  dark on a machine set to light.
+  Dark theme. Declared as plain custom properties rather than a second @theme block so
+  an explicit choice can beat the system preference: the media query is skipped when
+  the user has asked for light, and the [data-theme="dark"] rule covers asking for dark
+  on a machine set to light.
 */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-  --color-accent: #8b5cf6;
-  --color-accent-hover: #7c4dee;
-  --color-accent-fg: #ffffff;
-  --color-accent-soft: #1e1830;
-  --color-accent-border: #35285c;
+    --color-ds-gray-100: #1a1a1a;
+    --color-ds-gray-200: #1f1f1f;
+    --color-ds-gray-300: #292929;
+    --color-ds-gray-400: #2e2e2e;
+    --color-ds-gray-500: #454545;
+    --color-ds-gray-600: #878787;
+    --color-ds-gray-700: #8f8f8f;
+    --color-ds-gray-800: #7d7d7d;
+    --color-ds-gray-900: #a1a1a1;
+    --color-ds-gray-1000: #ededed;
 
-  --color-canvas: #0a0a0d;
-  --color-surface: #131318;
-  --color-raised: #17171e;
-  --color-subtle: #1c1c23;
-  --color-line: #26262f;
-  --color-line-strong: #35353f;
-  --color-ink: #f3f3f6;
-  --color-ink-soft: #c9c9d2;
-  --color-muted: #90909d;
+    --color-ds-purple-100: #2b0e3c;
+    --color-ds-purple-200: #331141;
+    --color-ds-purple-300: #431d54;
+    --color-ds-purple-400: #4f2363;
+    --color-ds-purple-500: #6d3494;
+    --color-ds-purple-600: #a457e8;
+    --color-ds-purple-700: #8e4ec6;
+    --color-ds-purple-800: #9a5cd0;
+    --color-ds-purple-900: #c372fc;
+    --color-ds-purple-1000: #ecd9fa;
 
-  --color-success: #34d399;
-  --color-success-soft: #0d2620;
-  --color-danger: #f87171;
-  --color-danger-soft: #2a1417;
-  --color-warning: #fbbf24;
-  --color-warning-soft: #2a1f0b;
-  --color-info: #7aa2ff;
-  --color-info-soft: #131c33;
+    --color-ds-blue-100: #0f1b2d;
+    --color-ds-blue-300: #10243e;
+    --color-ds-blue-600: #0072f5;
+    --color-ds-blue-900: #52a8ff;
+    --color-ds-blue-1000: #eaf6ff;
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
+    --color-ds-red-100: #2a1314;
+    --color-ds-red-300: #3c1618;
+    --color-ds-red-600: #e5484d;
+    --color-ds-red-900: #ff6369;
+    --color-ds-red-1000: #feecee;
+
+    --color-ds-amber-100: #271700;
+    --color-ds-amber-300: #341c00;
+    --color-ds-amber-600: #ffb224;
+    --color-ds-amber-900: #f1a10d;
+    --color-ds-amber-1000: #fef3dd;
+
+    --color-ds-green-100: #0b2110;
+    --color-ds-green-300: #0f2c14;
+    --color-ds-green-600: #45a557;
+    --color-ds-green-900: #62c073;
+    --color-ds-green-1000: #e5fbeb;
+
+    --color-ds-background-100: #0a0a0a;
+    --color-ds-background-200: #000000;
+
+    --color-canvas: var(--color-ds-background-200);
+    --color-surface: var(--color-ds-background-100);
+    --color-raised: #121212;
+    --color-solid: var(--color-ds-gray-1000);
+    --color-solid-hover: #cccccc;
+    --color-solid-fg: #0a0a0a;
+
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.6);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.7);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.7);
+    --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.6);
   }
 }
 
 :root[data-theme="dark"] {
-  --color-accent: #8b5cf6;
-  --color-accent-hover: #7c4dee;
-  --color-accent-fg: #ffffff;
-  --color-accent-soft: #1e1830;
-  --color-accent-border: #35285c;
+  --color-ds-gray-100: #1a1a1a;
+  --color-ds-gray-200: #1f1f1f;
+  --color-ds-gray-300: #292929;
+  --color-ds-gray-400: #2e2e2e;
+  --color-ds-gray-500: #454545;
+  --color-ds-gray-600: #878787;
+  --color-ds-gray-700: #8f8f8f;
+  --color-ds-gray-800: #7d7d7d;
+  --color-ds-gray-900: #a1a1a1;
+  --color-ds-gray-1000: #ededed;
 
-  --color-canvas: #0a0a0d;
-  --color-surface: #131318;
-  --color-raised: #17171e;
-  --color-subtle: #1c1c23;
-  --color-line: #26262f;
-  --color-line-strong: #35353f;
-  --color-ink: #f3f3f6;
-  --color-ink-soft: #c9c9d2;
-  --color-muted: #90909d;
+  --color-ds-purple-100: #2b0e3c;
+  --color-ds-purple-200: #331141;
+  --color-ds-purple-300: #431d54;
+  --color-ds-purple-400: #4f2363;
+  --color-ds-purple-500: #6d3494;
+  --color-ds-purple-600: #a457e8;
+  --color-ds-purple-700: #8e4ec6;
+  --color-ds-purple-800: #9a5cd0;
+  --color-ds-purple-900: #c372fc;
+  --color-ds-purple-1000: #ecd9fa;
 
-  --color-success: #34d399;
-  --color-success-soft: #0d2620;
-  --color-danger: #f87171;
-  --color-danger-soft: #2a1417;
-  --color-warning: #fbbf24;
-  --color-warning-soft: #2a1f0b;
-  --color-info: #7aa2ff;
-  --color-info-soft: #131c33;
+  --color-ds-blue-100: #0f1b2d;
+  --color-ds-blue-300: #10243e;
+  --color-ds-blue-600: #0072f5;
+  --color-ds-blue-900: #52a8ff;
+  --color-ds-blue-1000: #eaf6ff;
 
-  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.5);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.45);
+  --color-ds-red-100: #2a1314;
+  --color-ds-red-300: #3c1618;
+  --color-ds-red-600: #e5484d;
+  --color-ds-red-900: #ff6369;
+  --color-ds-red-1000: #feecee;
+
+  --color-ds-amber-100: #271700;
+  --color-ds-amber-300: #341c00;
+  --color-ds-amber-600: #ffb224;
+  --color-ds-amber-900: #f1a10d;
+  --color-ds-amber-1000: #fef3dd;
+
+  --color-ds-green-100: #0b2110;
+  --color-ds-green-300: #0f2c14;
+  --color-ds-green-600: #45a557;
+  --color-ds-green-900: #62c073;
+  --color-ds-green-1000: #e5fbeb;
+
+  --color-ds-background-100: #0a0a0a;
+  --color-ds-background-200: #000000;
+
+  --color-canvas: var(--color-ds-background-200);
+  --color-surface: var(--color-ds-background-100);
+  --color-raised: #121212;
+  --color-solid: var(--color-ds-gray-1000);
+  --color-solid-hover: #cccccc;
+  --color-solid-fg: #0a0a0a;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.7);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.6);
 }
 
 html,
@@ -149,38 +284,78 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
 }
 
-/* Headings read as headings at small sizes only if the tracking is pulled in. */
-h1,
-h2,
-h3 {
-  letter-spacing: -0.015em;
+/*
+  Geist's type scale. Headings introduce a page or section; Labels are single-line and
+  carry generous line-height so they sit level with an icon; Copy is for running text
+  and is looser again.
+*/
+.text-heading-24 {
+  font-size: 24px;
+  line-height: 32px;
+  letter-spacing: -0.96px;
+  font-weight: 600;
+}
+.text-heading-20 {
+  font-size: 20px;
+  line-height: 26px;
+  letter-spacing: -0.4px;
+  font-weight: 600;
+}
+.text-heading-16 {
+  font-size: 16px;
+  line-height: 24px;
+  letter-spacing: -0.32px;
+  font-weight: 600;
+}
+.text-label-14 {
+  font-size: 14px;
+  line-height: 20px;
+  letter-spacing: -0.16px;
+}
+.text-label-13 {
+  font-size: 13px;
+  line-height: 18px;
+  letter-spacing: -0.08px;
+}
+.text-label-12 {
+  font-size: 12px;
+  line-height: 16px;
+}
+.text-copy-14 {
+  font-size: 14px;
+  line-height: 20px;
+}
+.text-copy-13 {
+  font-size: 13px;
+  line-height: 18px;
 }
 
-/* Money and quantities only line up column-wise when the digits are the same width. */
+/*
+  Money and quantities are set in Geist Mono. Figures in a column line up because the
+  digits are the same width, and an invoice total reads as data rather than as prose.
+*/
 .tabular {
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.02em;
 }
 
-/* One focus treatment everywhere, keyboard only — a mouse user clicking a button
-   should not get a ring, a keyboard user must. */
+/* One focus treatment, keyboard only. */
 :focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-ds-blue-600);
   outline-offset: 2px;
-  border-radius: 0.375rem;
+  border-radius: var(--radius-base);
 }
 
-/* Scrollbars inside panels, subtle enough not to compete with the content. */
 @supports selector(::-webkit-scrollbar) {
   .scroll-slim::-webkit-scrollbar {
     height: 8px;
     width: 8px;
   }
   .scroll-slim::-webkit-scrollbar-thumb {
-    background: var(--color-line-strong);
+    background: var(--color-ds-gray-500);
     border-radius: 999px;
   }
   .scroll-slim::-webkit-scrollbar-track {
@@ -196,18 +371,16 @@ h3 {
     opacity: 1;
   }
 }
-
 @keyframes pop-in {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.985);
+    transform: translateY(4px) scale(0.99);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
 }
-
 @keyframes slide-in {
   from {
     transform: translateX(100%);
@@ -216,7 +389,6 @@ h3 {
     transform: translateX(0);
   }
 }
-
 @keyframes shimmer {
   from {
     background-position: 200% 0;
@@ -230,27 +402,25 @@ h3 {
   animation: fade-in 0.15s ease-out;
 }
 .animate-pop-in {
-  animation: pop-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: pop-in 0.16s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .animate-slide-in {
-  animation: slide-in 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: slide-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Loading placeholders that keep the page's shape instead of collapsing it to a
-   spinner — the layout stops jumping when the data lands. */
 .skeleton {
   background: linear-gradient(
     90deg,
-    var(--color-subtle) 25%,
-    var(--color-line) 37%,
-    var(--color-subtle) 63%
+    var(--color-ds-gray-100) 25%,
+    var(--color-ds-gray-200) 37%,
+    var(--color-ds-gray-100) 63%
   );
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
-  border-radius: 0.375rem;
+  border-radius: var(--radius-base);
 }
 
-/* Respect the system setting: motion is decoration here, never information. */
+/* Motion is decoration here, never information. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

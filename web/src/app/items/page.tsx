@@ -215,10 +215,10 @@ export default function ItemsPage() {
               >
                 <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-medium">{item.name}</p>
+                    <p className="truncate text-label-14 font-medium">{item.name}</p>
                     <StockBadge item={item} />
                   </div>
-                  <p className="mt-0.5 truncate text-sm text-muted">
+                  <p className="mt-0.5 truncate text-copy-13 text-muted">
                     {[
                       item.sku && `SKU ${item.sku}`,
                       catName(item.category_id),
@@ -230,17 +230,17 @@ export default function ItemsPage() {
                 </div>
 
                 <div className="ml-auto text-right sm:w-24">
-                  <p className="tabular text-sm font-medium">{formatMoney(item.price)}</p>
-                  <p className="text-xs text-muted">
+                  <p className="tabular text-label-14 font-medium">{formatMoney(item.price)}</p>
+                  <p className="text-label-12 text-muted">
                     {item.tax_rate > 0 ? `GST ${item.tax_rate}%` : "No GST"}
                   </p>
                 </div>
 
                 <div className="w-24 text-right">
-                  <p className="tabular text-sm font-medium">
+                  <p className="tabular text-label-14 font-medium">
                     {formatQty(item.quantity)}
                   </p>
-                  <p className="text-xs text-muted">{item.unit || "in stock"}</p>
+                  <p className="text-label-12 text-muted">{item.unit || "in stock"}</p>
                 </div>
 
                 <div className="flex items-center gap-1">
@@ -262,7 +262,7 @@ export default function ItemsPage() {
       </Card>
 
       {list.length > 0 && !cursor && (
-        <p className="mt-3 text-xs text-muted">
+        <p className="mt-3 text-label-12 text-muted">
           All {list.length} item{list.length === 1 ? "" : "s"} loaded
         </p>
       )}
@@ -757,7 +757,7 @@ function StockPanel({
               <span className="tabular w-16 text-right text-muted">
                 {formatQty(m.new_quantity)}
               </span>
-              <span className="w-44 text-right text-xs text-muted">{m.created_at}</span>
+              <span className="w-44 text-right text-label-12 text-muted">{m.created_at}</span>
             </li>
           ))}
         </ul>

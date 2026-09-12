@@ -194,7 +194,7 @@ function Ledger() {
         <CardHead
           title="Movements"
           action={
-            <span className="text-xs text-muted">
+            <span className="text-label-12 text-muted">
               {rows.length} {rows.length === 1 ? "entry" : "entries"}
             </span>
           }
