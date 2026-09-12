@@ -5,6 +5,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { ToastProvider } from "@/components/ui";
 import { THEME_BOOTSTRAP } from "@/components/ThemeToggle";
+import { ErrorReporting } from "@/components/ErrorReporting";
 
 // Geist Sans and Geist Mono, the typefaces the design system is built on. The font
 // files ship inside the `geist` package and are served from our own origin, so unlike
@@ -31,6 +32,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
       <body className="h-full">
+        <ErrorReporting />
         <AuthProvider>
           <ToastProvider>{children}</ToastProvider>
         </AuthProvider>

@@ -66,6 +66,9 @@ func main() {
 	// After Recovery so a panic is still turned into a 500 for the caller; reporting
 	// must not change what the client sees.
 	r.Use(observability.Middleware())
+	// Panics are only half the story: a handled 500 is the commoner failure and the
+	// one worth waking up for.
+	r.Use(observability.ReportServerErrors())
 
 	// CORS Middleware — locked to an explicit allowlist (ALLOWED_ORIGINS, comma-separated).
 	// The mobile app is unaffected: it's not a browser and never sends/needs an Origin header.

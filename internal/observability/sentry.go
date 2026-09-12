@@ -7,6 +7,7 @@ package observability
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -83,4 +84,54 @@ func scrubSensitive(event *sentry.Event, _ *sentry.EventHint) *sentry.Event {
 		event.Request.Data = ""
 	}
 	return event
+}
+
+// ReportServerErrors reports handled 5xx responses, not just panics.
+//
+// The panic middleware above only fires when a handler crashes. Almost every real
+// failure in this API is caught and turned into a 500 — a query that failed, a
+// transaction that could not commit — and those are precisely the ones worth an
+// alert. Without this they only ever reached stdout, where nobody was looking.
+//
+// The message is built from the route pattern rather than the URL, so every failure
+// of the same endpoint groups into one Sentry issue instead of one per invoice id.
+func ReportServerErrors() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+
+		status := c.Writer.Status()
+		if status < 500 {
+			return
+		}
+
+		route := c.FullPath()
+		if route == "" {
+			route = "unmatched"
+		}
+
+		hub := sentrygin.GetHubFromContext(c)
+		if hub == nil {
+			hub = sentry.CurrentHub()
+		}
+
+		hub.WithScope(func(scope *sentry.Scope) {
+			scope.SetLevel(sentry.LevelError)
+			scope.SetTag("route", route)
+			scope.SetTag("method", c.Request.Method)
+			scope.SetTag("status", strconv.Itoa(status))
+			// The user id is an integer we issued, not personal data, and it is the
+			// difference between "something is broken" and "this tenant is broken".
+			if userID := c.GetInt("user_id"); userID != 0 {
+				scope.SetUser(sentry.User{ID: strconv.Itoa(userID)})
+			}
+
+			// Whatever the handler recorded with c.Error carries the underlying
+			// cause; the status line alone rarely says why.
+			if len(c.Errors) > 0 {
+				scope.SetContext("handler", sentry.Context{"errors": c.Errors.String()})
+			}
+
+			hub.CaptureMessage(c.Request.Method + " " + route + " responded " + strconv.Itoa(status))
+		})
+	}
 }
