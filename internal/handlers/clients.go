@@ -44,11 +44,15 @@ func (h *clientHandler) CreateClient(c *gin.Context) {
 		return
 	}
 
-	// Now insert the client
-	_, err := h.db.DB.Exec(`
-        INSERT INTO clients (name, email, phone, address, city, state, pincode, company_id, user_id) 
+	// The new id is returned because creating a client is rarely the whole job: an
+	// invoice needs the client's billing address, which is stored separately, and
+	// without the id the caller had no way to attach one to the client it just made.
+	var clientID int
+	err := h.db.DB.QueryRow(`
+        INSERT INTO clients (name, email, phone, address, city, state, pincode, company_id, user_id)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    `, request.Name, request.Email, request.Phone, request.Address, request.City, request.State, request.Pincode, request.CompanyID, userID)
+        RETURNING id
+    `, request.Name, request.Email, request.Phone, request.Address, request.City, request.State, request.Pincode, request.CompanyID, userID).Scan(&clientID)
 
 	if err != nil {
 		log.Println("failed to create client:", err)
@@ -56,7 +60,7 @@ func (h *clientHandler) CreateClient(c *gin.Context) {
 		return
 	}
 
-	c.JSON(201, gin.H{"message": "Client created"})
+	c.JSON(201, gin.H{"message": "Client created", "client_id": clientID})
 }
 
 // GET /api/v1/companies/:id/clients

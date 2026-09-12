@@ -304,11 +304,15 @@ func (h *EstimateHandler) GetEstimateByID(c *gin.Context) {
 		return
 	}
 
+	// The item name is joined in for the same reason the invoice detail does it: the
+	// line rows carry only an item_id, so a client has nothing to label them with.
 	rows, err := h.db.DB.Query(`
-		SELECT id, item_id, qty, rate, discount, tax_rate, total
-		FROM estimate_items
-		WHERE estimate_id = $1
-		ORDER BY id
+		SELECT ei.id, ei.item_id, ei.qty, ei.rate, ei.discount, ei.tax_rate, ei.total,
+		       COALESCE(it.name, ''), COALESCE(it.hsn_code, '')
+		FROM estimate_items ei
+		LEFT JOIN items it ON it.id = ei.item_id
+		WHERE ei.estimate_id = $1
+		ORDER BY ei.id
 	`, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch estimate items"})
@@ -321,14 +325,15 @@ func (h *EstimateHandler) GetEstimateByID(c *gin.Context) {
 		var (
 			itemRowID, itemID, qty             int
 			rate, itemDiscount, taxRate, total float64
+			itemName, hsnCode                  string
 		)
-		if err := rows.Scan(&itemRowID, &itemID, &qty, &rate, &itemDiscount, &taxRate, &total); err != nil {
+		if err := rows.Scan(&itemRowID, &itemID, &qty, &rate, &itemDiscount, &taxRate, &total, &itemName, &hsnCode); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan estimate item"})
 			return
 		}
 		items = append(items, gin.H{
-			"id": itemRowID, "item_id": itemID, "qty": qty,
-			"rate": rate, "discount": itemDiscount, "tax_rate": taxRate, "total": total,
+			"id": itemRowID, "item_id": itemID, "item_name": itemName, "hsn_code": hsnCode,
+			"qty": qty, "rate": rate, "discount": itemDiscount, "tax_rate": taxRate, "total": total,
 		})
 	}
 

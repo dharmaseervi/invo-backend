@@ -785,7 +785,11 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		return
 	}
 
-	// Fetch invoice items
+	// Fetch invoice items.
+	//
+	// The item's name is joined in because the line rows carry only an item_id, and a
+	// client rendering the invoice has no way to label them — the web detail view showed
+	// "Item #4". LEFT JOIN so a line whose catalogue entry was deleted still lists.
 	rows, err := h.db.DB.Query(`
 		SELECT
 			ii.id,
@@ -794,8 +798,11 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 			ii.rate,
 			ii.discount,
 			ii.tax_rate,
-			ii.total
+			ii.total,
+			COALESCE(it.name, ''),
+			COALESCE(it.hsn_code, '')
 		FROM invoice_items ii
+		LEFT JOIN items it ON it.id = ii.item_id
 		WHERE ii.invoice_id = $1
 		ORDER BY ii.id
 	`, id)
@@ -813,6 +820,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		var (
 			itemRowID, itemID, qty             int
 			rate, discount, taxRate, lineTotal float64
+			itemName, hsnCode                  string
 		)
 
 		if err := rows.Scan(
@@ -823,6 +831,8 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 			&discount,
 			&taxRate,
 			&lineTotal,
+			&itemName,
+			&hsnCode,
 		); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Failed to scan invoice item",
@@ -831,13 +841,15 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		}
 
 		items = append(items, gin.H{
-			"id":       itemRowID,
-			"item_id":  itemID,
-			"qty":      qty,
-			"rate":     rate,
-			"discount": discount,
-			"tax_rate": taxRate,
-			"total":    lineTotal,
+			"id":        itemRowID,
+			"item_id":   itemID,
+			"item_name": itemName,
+			"hsn_code":  hsnCode,
+			"qty":       qty,
+			"rate":      rate,
+			"discount":  discount,
+			"tax_rate":  taxRate,
+			"total":     lineTotal,
 		})
 	}
 

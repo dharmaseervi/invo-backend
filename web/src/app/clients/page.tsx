@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   clientAddresses,
@@ -247,7 +247,6 @@ function ClientForm({
 
   // The GSTIN lives on the client's billing address, not the client row, so it is
   // fetched separately. A client with no address yet simply has none.
-  const loadedGstin = useRef("");
   useEffect(() => {
     if (!client) return;
     let cancelled = false;
@@ -255,9 +254,7 @@ function ClientForm({
       try {
         const res = await clientAddresses.get(client.id, "billing");
         if (cancelled) return;
-        const value = res.data?.gst_number ?? "";
-        loadedGstin.current = value;
-        setGstin(value);
+        setGstin(res.data?.gst_number ?? "");
       } catch {
         /* an address is optional; leaving the field blank is correct */
       }
@@ -285,21 +282,16 @@ function ClientForm({
       if (client) {
         await clientsApi.update(client.id, body);
       } else {
-        await clientsApi.create(body);
-        clientId = undefined; // create does not return the new id
+        const created = await clientsApi.create(body);
+        clientId = created.client_id;
       }
 
-      // Only written when it changed, and only for an existing client: the create
-      // endpoint returns no id, so there is nothing to attach an address to yet.
-      if (clientId && gstin.trim() !== loadedGstin.current) {
-        const line1 = form.address.trim();
-        if (!line1) {
-          setError(
-            "A street address is required before a GSTIN can be saved. The client itself was saved.",
-          );
-          setSaving(false);
-          return;
-        }
+      // The billing address is kept in step with the client on every save, not only
+      // when the GSTIN changes. An invoice snapshots this address and the server
+      // refuses to raise one without it, so a client saved without an address here
+      // could never be invoiced.
+      const line1 = form.address.trim();
+      if (clientId && line1) {
         const address: ClientAddress = {
           type: "billing",
           name,
@@ -310,9 +302,15 @@ function ClientForm({
           country: "India",
           phone: form.phone,
           email: form.email,
-          gst_number: gstin.trim(),
+          gst_number: gstin.trim() || null,
         };
         await clientAddresses.save(clientId, address);
+      } else if (clientId && gstin.trim()) {
+        setError(
+          "Saved, but a street address is needed before the GSTIN can be stored.",
+        );
+        setSaving(false);
+        return;
       }
 
       onSaved(name);
@@ -341,7 +339,12 @@ function ClientForm({
         <Field label="Phone" value={form.phone} onChange={set("phone")} />
 
         <p className="mb-3 mt-6 text-xs font-medium text-muted">Address</p>
-        <Field label="Street address" value={form.address} onChange={set("address")} />
+        <Field
+          label="Street address"
+          value={form.address}
+          onChange={set("address")}
+          hint="Required before this client can be invoiced"
+        />
         <div className="grid gap-x-4 sm:grid-cols-2">
           <Field label="City" value={form.city} onChange={set("city")} />
           <Select
@@ -360,15 +363,13 @@ function ClientForm({
         </div>
         <Field label="Pincode" value={form.pincode} onChange={set("pincode")} />
 
-        {client && (
-          <Field
+        <Field
             label="GSTIN"
             value={gstin}
             onChange={(e) => setGstin(e.target.value.toUpperCase())}
             placeholder="29ABCDE1234F1Z5"
             hint="Optional. Required on their invoices if they claim input credit."
           />
-        )}
 
         <div className="mt-6 flex justify-end gap-2">
           <Button type="button" onClick={onClose}>

@@ -98,6 +98,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// Company routes
 		protected.POST("/companies", companyHandler.CreateCompany)
 		protected.GET("/companies", companyHandler.GetMyCompanies)
+		protected.PUT("/companies/:companyId", companyHandler.UpdateCompany)
 		protected.GET("/companies/:companyId/address", companyAddressHandler.GetCompanyAddress)
 		protected.POST("/companies/:companyId/address", companyAddressHandler.SaveCompanyAddress)
 

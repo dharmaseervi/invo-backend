@@ -9,8 +9,15 @@ import { Button, Spinner } from "@/components/ui";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/invoices", label: "Invoices" },
+  { href: "/estimates", label: "Estimates" },
+  { href: "/payments", label: "Payments" },
   { href: "/clients", label: "Clients" },
   { href: "/items", label: "Items" },
+  { href: "/expenses", label: "Expenses" },
+  { href: "/credit-notes", label: "Credit notes" },
+  { href: "/reports", label: "Reports" },
+  { href: "/settings", label: "Settings" },
 ];
 
 /**
@@ -52,7 +59,7 @@ export function AppShell({
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-3">
           <span className="text-sm font-semibold tracking-tight">Invo Billing</span>
 
-          <nav className="flex items-center gap-1">
+          <nav className="flex flex-wrap items-center gap-1">
             {NAV.map((tab) => {
               const active = pathname?.startsWith(tab.href);
               return (
@@ -114,8 +121,8 @@ export function NoCompany() {
     <div className="rounded-xl border border-line bg-surface px-6 py-16 text-center shadow-sm">
       <p className="text-sm font-medium">No company yet</p>
       <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted">
-        Clients and items belong to a company. Create one in the mobile app to get
-        started — company setup is coming to the web shortly.
+        Clients, items and invoices all belong to a company. Create one in Settings to
+        get started.
       </p>
     </div>
   );
