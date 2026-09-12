@@ -17,10 +17,11 @@ import {
   EmptyState,
   ErrorText,
   Field,
+  IconButton,
   Modal,
   SearchInput,
   Select,
-  Spinner,
+  SkeletonRows,
   useToast,
 } from "@/components/ui";
 
@@ -101,7 +102,7 @@ export default function ClientsPage() {
   if (authLoading || (!company && !authLoading)) {
     return (
       <AppShell title="Clients">
-        {authLoading ? <Spinner /> : <NoCompany />}
+        {authLoading ? null : <NoCompany />}
       </AppShell>
     );
   }
@@ -109,8 +110,9 @@ export default function ClientsPage() {
   return (
     <AppShell
       title="Clients"
+      description="The people and businesses you invoice"
       actions={
-        <Button variant="primary" onClick={() => setCreating(true)}>
+        <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
           Add client
         </Button>
       }
@@ -125,17 +127,17 @@ export default function ClientsPage() {
 
       <Card>
         {loading && list.length === 0 ? (
-          <div className="grid place-items-center py-16">
-            <Spinner />
-          </div>
+          <SkeletonRows />
         ) : error ? (
           <EmptyState
+            icon="alert"
             title="Couldn't load clients"
             message={error}
             action={<Button onClick={reload}>Try again</Button>}
           />
         ) : list.length === 0 ? (
           <EmptyState
+            icon="client"
             title={search ? "No matches" : "No clients yet"}
             message={
               search
@@ -144,7 +146,7 @@ export default function ClientsPage() {
             }
             action={
               !search && (
-                <Button variant="primary" onClick={() => setCreating(true)}>
+                <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
                   Add client
                 </Button>
               )
@@ -155,8 +157,11 @@ export default function ClientsPage() {
             {list.map((client) => (
               <li
                 key={client.id}
-                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4"
+                className="group flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
               >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-soft text-[13px] font-semibold uppercase text-accent">
+                  {client.name.trim().charAt(0) || "?"}
+                </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{client.name}</p>
                   <p className="mt-0.5 truncate text-sm text-muted">
@@ -164,14 +169,17 @@ export default function ClientsPage() {
                       "No contact details"}
                   </p>
                 </div>
-                <p className="hidden truncate text-sm text-muted sm:block sm:w-48">
+                <p className="ml-auto hidden truncate text-sm text-muted sm:block sm:w-48">
                   {[client.city, client.state].filter(Boolean).join(", ") || "—"}
                 </p>
-                <div className="flex items-center gap-2">
-                  <Button onClick={() => setEditing(client)}>Edit</Button>
-                  <Button variant="danger" onClick={() => void remove(client)}>
-                    Delete
-                  </Button>
+                <div className="flex items-center gap-1">
+                  <IconButton icon="edit" label={`Edit ${client.name}`} onClick={() => setEditing(client)} />
+                  <IconButton
+                    icon="trash"
+                    label={`Delete ${client.name}`}
+                    onClick={() => void remove(client)}
+                    className="hover:text-danger"
+                  />
                 </div>
               </li>
             ))}

@@ -20,9 +20,11 @@ import {
   EmptyState,
   ErrorText,
   Field,
+  IconButton,
   Modal,
   SearchInput,
   Select,
+  SkeletonRows,
   Spinner,
   TextArea,
   useToast,
@@ -155,15 +157,16 @@ export default function ItemsPage() {
 
   if (authLoading || !company) {
     return (
-      <AppShell title="Items">{authLoading ? <Spinner /> : <NoCompany />}</AppShell>
+      <AppShell title="Items">{authLoading ? null : <NoCompany />}</AppShell>
     );
   }
 
   return (
     <AppShell
       title="Items"
+      description="Your catalogue, pricing and stock on hand"
       actions={
-        <Button variant="primary" onClick={() => setCreating(true)}>
+        <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
           Add item
         </Button>
       }
@@ -178,17 +181,17 @@ export default function ItemsPage() {
 
       <Card>
         {loading && list.length === 0 ? (
-          <div className="grid place-items-center py-16">
-            <Spinner />
-          </div>
+          <SkeletonRows />
         ) : error ? (
           <EmptyState
+            icon="alert"
             title="Couldn't load items"
             message={error}
             action={<Button onClick={reload}>Try again</Button>}
           />
         ) : list.length === 0 ? (
           <EmptyState
+            icon="item"
             title={search ? "No matches" : "No items yet"}
             message={
               search
@@ -197,7 +200,7 @@ export default function ItemsPage() {
             }
             action={
               !search && (
-                <Button variant="primary" onClick={() => setCreating(true)}>
+                <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
                   Add item
                 </Button>
               )
@@ -208,9 +211,9 @@ export default function ItemsPage() {
             {list.map((item) => (
               <li
                 key={item.id}
-                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4"
+                className="group flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
               >
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate text-sm font-medium">{item.name}</p>
                     <StockBadge item={item} />
@@ -226,7 +229,7 @@ export default function ItemsPage() {
                   </p>
                 </div>
 
-                <div className="w-24 text-right">
+                <div className="ml-auto text-right sm:w-24">
                   <p className="tabular text-sm font-medium">{formatMoney(item.price)}</p>
                   <p className="text-xs text-muted">
                     {item.tax_rate > 0 ? `GST ${item.tax_rate}%` : "No GST"}
@@ -240,9 +243,11 @@ export default function ItemsPage() {
                   <p className="text-xs text-muted">{item.unit || "in stock"}</p>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Button onClick={() => setStockFor(item)}>Stock</Button>
-                  <Button onClick={() => setEditing(item)}>Edit</Button>
+                <div className="flex items-center gap-1">
+                  <Button size="sm" onClick={() => setStockFor(item)}>
+                    Stock
+                  </Button>
+                  <IconButton icon="edit" label={`Edit ${item.name}`} onClick={() => setEditing(item)} />
                 </div>
               </li>
             ))}

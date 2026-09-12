@@ -27,6 +27,7 @@ import {
   Field,
   Modal,
   Select,
+  SkeletonRows,
   Spinner,
   useToast,
 } from "@/components/ui";
@@ -67,7 +68,7 @@ export default function CreditNotesPage() {
   if (authLoading || !company) {
     return (
       <AppShell title="Credit notes">
-        {authLoading ? <Spinner /> : <NoCompany />}
+        {authLoading ? null : <NoCompany />}
       </AppShell>
     );
   }
@@ -75,29 +76,30 @@ export default function CreditNotesPage() {
   return (
     <AppShell
       title="Credit notes"
+      description="Reduces the GST owed on a supply that came back or was overcharged"
       actions={
-        <Button variant="primary" onClick={() => setCreating(true)}>
+        <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
           New credit note
         </Button>
       }
     >
       <Card>
         {loading && rows.length === 0 ? (
-          <div className="grid place-items-center py-16">
-            <Spinner />
-          </div>
+          <SkeletonRows />
         ) : error ? (
           <EmptyState
+            icon="alert"
             title="Couldn't load credit notes"
             message={error}
             action={<Button onClick={() => void load()}>Try again</Button>}
           />
         ) : rows.length === 0 ? (
           <EmptyState
+            icon="credit"
             title="No credit notes yet"
             message="Issue one when goods come back or a price was overcharged — it reduces the GST you owe on that supply."
             action={
-              <Button variant="primary" onClick={() => setCreating(true)}>
+              <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
                 New credit note
               </Button>
             }
@@ -105,11 +107,14 @@ export default function CreditNotesPage() {
         ) : (
           <ul className="divide-y divide-line">
             {rows.map((cn) => (
-              <li key={cn.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
-                <div className="min-w-0 flex-1">
+              <li
+                key={cn.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
+              >
+                <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate text-sm font-medium">{cn.credit_number}</p>
-                    <Badge tone={cn.type === "return" ? "muted" : "warning"}>
+                    <Badge tone={cn.type === "return" ? "neutral" : "warning"}>
                       {cn.type === "return"
                         ? "Goods returned"
                         : cn.type === "discount"
@@ -121,7 +126,7 @@ export default function CreditNotesPage() {
                     {cn.client_name} · {formatDate(cn.credit_date)}
                   </p>
                 </div>
-                <div className="w-32 text-right">
+                <div className="ml-auto text-right sm:w-32">
                   <p className="tabular text-sm font-medium">{formatMoney(cn.total)}</p>
                   {cn.balance > 0 && (
                     <p className="tabular text-xs text-muted">
@@ -129,7 +134,9 @@ export default function CreditNotesPage() {
                     </p>
                   )}
                 </div>
-                <Button onClick={() => setViewing(cn.id)}>Open</Button>
+                <Button size="sm" onClick={() => setViewing(cn.id)}>
+                  Open
+                </Button>
               </li>
             ))}
           </ul>

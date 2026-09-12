@@ -25,7 +25,12 @@ import {
   Field,
   Modal,
   Select,
+  Sheet,
+  SkeletonRows,
   Spinner,
+  TableWrap,
+  Td,
+  Th,
   useToast,
 } from "@/components/ui";
 
@@ -34,11 +39,11 @@ const PAGE = 25;
 /** Status drives what can be done to an invoice, so it is shown prominently. */
 function StatusBadge({ status, overdue }: { status: string; overdue?: boolean }) {
   if (status === "paid") return <Badge tone="success">Paid</Badge>;
-  if (status === "cancelled") return <Badge>Cancelled</Badge>;
-  if (status === "draft") return <Badge>Draft</Badge>;
+  if (status === "cancelled") return <Badge tone="neutral">Cancelled</Badge>;
+  if (status === "draft") return <Badge tone="neutral">Draft</Badge>;
   if (overdue) return <Badge tone="danger">Overdue</Badge>;
   if (status === "partial") return <Badge tone="warning">Part paid</Badge>;
-  return <Badge tone="muted">Issued</Badge>;
+  return <Badge tone="info">Issued</Badge>;
 }
 
 export default function InvoicesPage() {
@@ -96,36 +101,37 @@ export default function InvoicesPage() {
 
   if (authLoading || !company) {
     return (
-      <AppShell title="Invoices">{authLoading ? <Spinner /> : <NoCompany />}</AppShell>
+      <AppShell title="Invoices">{authLoading ? null : <NoCompany />}</AppShell>
     );
   }
 
   return (
     <AppShell
       title="Invoices"
+      description="Drafts can be edited; issuing assigns the number and moves stock"
       actions={
-        <Button variant="primary" onClick={() => setCreating(true)}>
+        <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
           New invoice
         </Button>
       }
     >
       <Card>
         {loading && rows.length === 0 ? (
-          <div className="grid place-items-center py-16">
-            <Spinner />
-          </div>
+          <SkeletonRows />
         ) : error ? (
           <EmptyState
+            icon="alert"
             title="Couldn't load invoices"
             message={error}
             action={<Button onClick={reload}>Try again</Button>}
           />
         ) : rows.length === 0 ? (
           <EmptyState
+            icon="invoice"
             title="No invoices yet"
             message="Raise your first invoice — it starts as a draft you can edit before issuing."
             action={
-              <Button variant="primary" onClick={() => setCreating(true)}>
+              <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
                 New invoice
               </Button>
             }
@@ -135,9 +141,9 @@ export default function InvoicesPage() {
             {rows.map((inv) => (
               <li
                 key={inv.id}
-                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4"
+                className="group flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
               >
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate text-sm font-medium">
                       {inv.invoice_number || "Draft"}
@@ -149,7 +155,7 @@ export default function InvoicesPage() {
                     {inv.is_overdue ? ` · ${inv.days_overdue} days overdue` : ""}
                   </p>
                 </div>
-                <div className="w-32 text-right">
+                <div className="ml-auto text-right sm:w-32">
                   <p className="tabular text-sm font-medium">{formatMoney(inv.total)}</p>
                   {inv.remaining_amount > 0 && inv.status !== "cancelled" && (
                     <p className="tabular text-xs text-muted">
@@ -157,7 +163,9 @@ export default function InvoicesPage() {
                     </p>
                   )}
                 </div>
-                <Button onClick={() => setViewing(inv.id)}>Open</Button>
+                <Button size="sm" onClick={() => setViewing(inv.id)}>
+                  Open
+                </Button>
               </li>
             ))}
           </ul>
@@ -388,6 +396,7 @@ function InvoiceDetailModal({
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
+  const [emailing, setEmailing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -428,8 +437,8 @@ function InvoiceDetailModal({
         try {
           await invoicesApi.issue(id);
         } catch (err) {
-          // The refusal to issue past available stock is deliberate, so it is put to
-          // the user rather than forced silently.
+          // Refusing to issue past available stock is deliberate, so it is put to the
+          // user rather than forced silently.
           if (
             err instanceof ApiError &&
             /stock/i.test(err.message) &&
@@ -444,129 +453,275 @@ function InvoiceDetailModal({
       "Invoice issued",
     );
 
-  return (
-    <Modal open wide title={detail?.invoice_number || "Invoice"} onClose={onClose}>
-      {loading || !detail ? (
-        <div className="grid place-items-center py-16">
-          <Spinner />
-        </div>
-      ) : (
-        <>
-          <div className="mb-5 flex flex-wrap items-center gap-3">
-            <StatusBadge status={detail.status} overdue={detail.is_overdue} />
-            <span className="text-sm text-muted">
-              {detail.client.name} · {formatDate(detail.invoice_date)} · due{" "}
-              {formatDate(detail.due_date)}
-            </span>
-          </div>
+  const footer = detail ? (
+    <>
+      <Button
+        icon="download"
+        onClick={() =>
+          void downloadPdf(
+            `/invoices/${detail.id}/pdf`,
+            `${detail.invoice_number || "invoice"}.pdf`,
+          ).catch((err) =>
+            toast.show(err instanceof ApiError ? err.message : "Failed to download", "error"),
+          )
+        }
+      >
+        PDF
+      </Button>
 
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[34rem] text-sm">
+      {detail.status !== "draft" && detail.status !== "cancelled" && (
+        <Button icon="mail" onClick={() => setEmailing(true)}>
+          Email
+        </Button>
+      )}
+
+      {detail.status === "draft" && (
+        <>
+          <Button icon="edit" onClick={() => onEdit(detail)}>
+            Edit
+          </Button>
+          <Button
+            variant="danger"
+            icon="trash"
+            loading={busy === "delete"}
+            onClick={() => {
+              if (!window.confirm("Delete this draft? This cannot be undone.")) return;
+              void act("delete", () => invoicesApi.remove(detail.id), "Draft deleted").then(
+                onClose,
+              );
+            }}
+          >
+            Delete
+          </Button>
+          <Button variant="primary" icon="check" loading={busy === "issue"} onClick={() => void issue()}>
+            Issue
+          </Button>
+        </>
+      )}
+
+      {(detail.status === "issued" || detail.status === "partial") && (
+        <Button
+          variant="danger"
+          loading={busy === "cancel"}
+          onClick={() => {
+            if (
+              !window.confirm(
+                "Cancel this invoice? It stays on record and stock is returned.",
+              )
+            )
+              return;
+            void act("cancel", () => invoicesApi.cancel(detail.id), "Invoice cancelled");
+          }}
+        >
+          Cancel invoice
+        </Button>
+      )}
+    </>
+  ) : null;
+
+  return (
+    <>
+      <Sheet
+        open
+        title={detail?.invoice_number || "Invoice"}
+        subtitle={
+          detail && (
+            <span className="flex flex-wrap items-center gap-2">
+              <StatusBadge status={detail.status} overdue={detail.is_overdue} />
+              <span>
+                {detail.client.name} · {formatDate(detail.invoice_date)} · due{" "}
+                {formatDate(detail.due_date)}
+              </span>
+            </span>
+          )
+        }
+        onClose={onClose}
+        footer={footer}
+      >
+        {loading || !detail ? (
+          <div className="grid place-items-center py-16 text-muted">
+            <Spinner />
+          </div>
+        ) : (
+          <>
+            <TableWrap min="30rem">
               <thead>
-                <tr className="border-b border-line text-left text-xs text-muted">
-                  <th className="py-2 font-medium">Item</th>
-                  <th className="w-16 py-2 text-right font-medium">Qty</th>
-                  <th className="w-24 py-2 text-right font-medium">Rate</th>
-                  <th className="w-20 py-2 text-right font-medium">GST %</th>
-                  <th className="w-28 py-2 text-right font-medium">Amount</th>
+                <tr>
+                  <Th>Item</Th>
+                  <Th align="right">Qty</Th>
+                  <Th align="right">Rate</Th>
+                  <Th align="right">GST %</Th>
+                  <Th align="right">Amount</Th>
                 </tr>
               </thead>
               <tbody>
                 {detail.items.map((l) => (
-                  <tr key={l.id} className="border-b border-line">
-                    <td className="py-2">
-                      {l.item_name || `Item #${l.item_id}`}
+                  <tr key={l.id}>
+                    <Td>
+                      <span className="font-medium">
+                        {l.item_name || `Item #${l.item_id}`}
+                      </span>
                       {l.hsn_code && (
                         <span className="ml-2 text-xs text-muted">HSN {l.hsn_code}</span>
                       )}
-                    </td>
-                    <td className="tabular py-2 text-right">{l.qty}</td>
-                    <td className="tabular py-2 text-right">{formatMoney(l.rate)}</td>
-                    <td className="tabular py-2 text-right">{l.tax_rate}</td>
-                    <td className="tabular py-2 text-right">{formatMoney(l.total)}</td>
+                    </Td>
+                    <Td align="right" className="tabular">
+                      {l.qty}
+                    </Td>
+                    <Td align="right" className="tabular">
+                      {formatMoney(l.rate)}
+                    </Td>
+                    <Td align="right" className="tabular">
+                      {l.tax_rate}
+                    </Td>
+                    <Td align="right" className="tabular">
+                      {formatMoney(l.total)}
+                    </Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </TableWrap>
 
-          <dl className="mt-5 ml-auto w-full max-w-xs space-y-1.5 text-sm">
-            <Line label="Taxable value" value={formatMoney(detail.subtotal)} />
-            {detail.discount > 0 && (
-              <Line label="Discount" value={`− ${formatMoney(detail.discount)}`} />
-            )}
-            <Line label="GST" value={formatMoney(detail.tax)} />
-            <div className="flex justify-between border-t border-line pt-2 font-semibold">
-              <dt>Total</dt>
-              <dd className="tabular">{formatMoney(detail.total)}</dd>
-            </div>
-            {detail.paid_amount > 0 && (
-              <>
-                <Line label="Paid" value={formatMoney(detail.paid_amount)} />
-                <Line label="Outstanding" value={formatMoney(detail.remaining_amount)} />
-              </>
-            )}
-          </dl>
+            <dl className="ml-auto mt-5 w-full max-w-xs space-y-1.5 text-sm">
+              <Line label="Taxable value" value={formatMoney(detail.subtotal)} />
+              {detail.discount > 0 && (
+                <Line label="Discount" value={`− ${formatMoney(detail.discount)}`} />
+              )}
+              <Line label="GST" value={formatMoney(detail.tax)} />
+              <div className="flex justify-between border-t border-line pt-2 font-semibold">
+                <dt>Total</dt>
+                <dd className="tabular">{formatMoney(detail.total)}</dd>
+              </div>
+              {detail.paid_amount > 0 && (
+                <>
+                  <Line label="Paid" value={formatMoney(detail.paid_amount)} />
+                  <Line
+                    label="Outstanding"
+                    value={formatMoney(detail.remaining_amount)}
+                  />
+                </>
+              )}
+            </dl>
+          </>
+        )}
+      </Sheet>
 
-          <div className="mt-6 flex flex-wrap justify-end gap-2">
-            <Button
-              onClick={() =>
-                void downloadPdf(
-                  `/invoices/${detail.id}/pdf`,
-                  `${detail.invoice_number || "invoice"}.pdf`,
-                ).catch((err) =>
-                  toast.show(
-                    err instanceof ApiError ? err.message : "Failed to download",
-                    "error",
-                  ),
-                )
-              }
-            >
-              Download PDF
-            </Button>
-
-            {detail.status === "draft" && (
-              <>
-                <Button onClick={() => onEdit(detail)}>Edit</Button>
-                <Button
-                  variant="danger"
-                  loading={busy === "delete"}
-                  onClick={() => {
-                    if (!window.confirm("Delete this draft? This cannot be undone."))
-                      return;
-                    void act("delete", () => invoicesApi.remove(detail.id), "Draft deleted").then(
-                      onClose,
-                    );
-                  }}
-                >
-                  Delete
-                </Button>
-                <Button variant="primary" loading={busy === "issue"} onClick={() => void issue()}>
-                  Issue
-                </Button>
-              </>
-            )}
-
-            {(detail.status === "issued" || detail.status === "partial") && (
-              <Button
-                variant="danger"
-                loading={busy === "cancel"}
-                onClick={() => {
-                  if (
-                    !window.confirm(
-                      "Cancel this invoice? It stays on record and stock is returned.",
-                    )
-                  )
-                    return;
-                  void act("cancel", () => invoicesApi.cancel(detail.id), "Invoice cancelled");
-                }}
-              >
-                Cancel invoice
-              </Button>
-            )}
-          </div>
-        </>
+      {emailing && detail && (
+        <EmailInvoiceModal
+          invoice={detail}
+          onClose={() => setEmailing(false)}
+          onSent={() => {
+            setEmailing(false);
+            toast.show("Invoice emailed", "success");
+          }}
+        />
       )}
+    </>
+  );
+}
+
+/**
+ * Emails the invoice PDF to the client.
+ *
+ * The address is pre-filled from the client's record but stays editable — an invoice
+ * often has to go to an accounts inbox rather than the person who placed the order.
+ * "Reminder" changes the wording the server sends for an invoice already overdue.
+ */
+function EmailInvoiceModal({
+  invoice,
+  onClose,
+  onSent,
+}: {
+  invoice: InvoiceDetail;
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const { company } = useAuth();
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState(invoice.client.name);
+  const [reminder, setReminder] = useState(invoice.is_overdue);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!company) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await clientsApi.list(company.id);
+        const match = (res.clients ?? []).find((c) => c.id === invoice.client.id);
+        if (!cancelled && match?.email) setEmail(match.email);
+      } catch {
+        /* the address can be typed in */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [company, invoice.client.id]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      setError("An email address is required");
+      return;
+    }
+    setSending(true);
+    setError("");
+    try {
+      await invoicesApi.sendEmail(invoice.id, {
+        to_email: email.trim(),
+        to_name: name.trim() || invoice.client.name,
+        reminder,
+      });
+      onSent();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to send the email");
+      setSending(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      title={`Email ${invoice.invoice_number}`}
+      description="Sends the invoice PDF as an attachment"
+      onClose={onClose}
+    >
+      <form onSubmit={submit} noValidate>
+        <ErrorText>{error}</ErrorText>
+        <Field
+          label="To"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="accounts@client.in"
+          autoFocus
+        />
+        <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        <label className="mb-4 flex items-start gap-2.5 rounded-lg border border-line bg-subtle/50 px-3 py-2.5 text-sm">
+          <input
+            type="checkbox"
+            checked={reminder}
+            onChange={(e) => setReminder(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Send as a payment reminder
+            <span className="mt-0.5 block text-xs text-muted">
+              Wording for an invoice that is already due, rather than a first send.
+            </span>
+          </span>
+        </label>
+        <div className="flex justify-end gap-2">
+          <Button type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" icon="mail" loading={sending}>
+            Send
+          </Button>
+        </div>
+      </form>
     </Modal>
   );
 }

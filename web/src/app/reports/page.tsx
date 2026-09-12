@@ -14,15 +14,21 @@ import {
 import { useAuth } from "@/lib/auth";
 import { downloadCsv } from "@/lib/csv";
 import { AppShell, NoCompany } from "@/components/AppShell";
+import { Icon } from "@/components/icons";
 import {
   Badge,
   Button,
   Card,
+  CardHead,
   EmptyState,
   Field,
   SearchInput,
-  Select,
   Spinner,
+  Stat,
+  TableWrap,
+  Tabs,
+  Td,
+  Th,
   useToast,
 } from "@/components/ui";
 
@@ -40,26 +46,17 @@ export default function ReportsPage() {
 
   if (authLoading || !company) {
     return (
-      <AppShell title="Reports">{authLoading ? <Spinner /> : <NoCompany />}</AppShell>
+      <AppShell title="Reports">{authLoading ? null : <NoCompany />}</AppShell>
     );
   }
 
   return (
-    <AppShell title="Reports">
-      <div className="mb-5 flex gap-1">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            aria-current={tab === t.id ? "page" : undefined}
-            className={`rounded-lg px-3 py-1.5 text-sm transition ${
-              tab === t.id ? "bg-subtle font-medium" : "text-muted hover:bg-subtle"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+    <AppShell
+      title="Reports"
+      description="Stock on hand, who owes you, and what the GST return will say"
+    >
+      <div className="mb-5">
+        <Tabs tabs={TABS} active={tab} onChange={setTab} />
       </div>
 
       {tab === "stock" && <StockTab companyId={company.id} />}
@@ -69,18 +66,37 @@ export default function ReportsPage() {
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "danger" | "warning" }) {
+/** Compact labelled dropdown for a toolbar, where a stacked label would misalign. */
+function Filter({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
   return (
-    <Card className="p-4">
-      <p className="text-xs text-muted">{label}</p>
-      <p
-        className={`tabular mt-1 text-lg font-semibold ${
-          tone === "danger" ? "text-danger" : tone === "warning" ? "text-warning" : ""
-        }`}
+    <div className="relative">
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-9.5 appearance-none rounded-lg border border-line bg-surface pl-3 pr-8 text-sm shadow-xs outline-none focus:border-accent"
       >
-        {value}
-      </p>
-    </Card>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <Icon
+        name="chevron-down"
+        className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+      />
+    </div>
   );
 }
 
@@ -150,8 +166,8 @@ function StockTab({ companyId }: { companyId: number }) {
   return (
     <>
       <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Stock at cost" value={formatMoney(report.total_cost_value)} />
-        <Stat label="Retail value" value={formatMoney(report.total_retail_value)} />
+        <Stat label="Stock at cost" value={formatMoney(report.total_cost_value)} icon="item" />
+        <Stat label="Retail value" value={formatMoney(report.total_retail_value)} icon="report" />
         <Stat
           label="Low stock"
           value={String(report.low_stock_count)}
@@ -164,63 +180,76 @@ function StockTab({ companyId }: { companyId: number }) {
         />
       </div>
 
-      <Card className="mb-5 p-5">
-        <p className="mb-3 text-sm font-medium">By category</p>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[40rem] text-sm">
+      <Card className="mb-5">
+        <CardHead title="By category" />
+        <div className="p-2">
+          <TableWrap min="38rem">
             <thead>
-              <tr className="border-b border-line text-left text-xs text-muted">
-                <th className="py-2 font-medium">Category</th>
-                <th className="w-20 py-2 text-right font-medium">Items</th>
-                <th className="w-20 py-2 text-right font-medium">Units</th>
-                <th className="w-32 py-2 text-right font-medium">At cost</th>
-                <th className="w-32 py-2 text-right font-medium">At retail</th>
-                <th className="w-24 py-2 text-right font-medium">Share</th>
+              <tr>
+                <Th>Category</Th>
+                <Th align="right">Items</Th>
+                <Th align="right">Units</Th>
+                <Th align="right">At cost</Th>
+                <Th align="right">At retail</Th>
+                <Th align="right">Share</Th>
               </tr>
             </thead>
             <tbody>
               {report.categories.map((c) => (
-                <tr key={c.category_id ?? "none"} className="border-b border-line">
-                  <td className="py-2">{c.category_name}</td>
-                  <td className="tabular py-2 text-right">{c.item_count}</td>
-                  <td className="tabular py-2 text-right">{formatQty(c.total_units)}</td>
-                  <td className="tabular py-2 text-right">{formatMoney(c.cost_value)}</td>
-                  <td className="tabular py-2 text-right">{formatMoney(c.retail_value)}</td>
-                  <td className="tabular py-2 text-right">{c.share_of_value.toFixed(1)}%</td>
+                <tr key={c.category_id ?? "none"} className="transition hover:bg-subtle/60">
+                  <Td className="font-medium">{c.category_name}</Td>
+                  <Td align="right" className="tabular">{c.item_count}</Td>
+                  <Td align="right" className="tabular">{formatQty(c.total_units)}</Td>
+                  <Td align="right" className="tabular">{formatMoney(c.cost_value)}</Td>
+                  <Td align="right" className="tabular">{formatMoney(c.retail_value)}</Td>
+                  <Td align="right" className="tabular text-muted">
+                    {/* A bar makes the concentration obvious at a glance; the number
+                        alone requires comparing six of them. */}
+                    <span className="inline-flex items-center gap-2">
+                      <span className="hidden h-1.5 w-12 overflow-hidden rounded-full bg-subtle sm:block">
+                        <span
+                          className="block h-full rounded-full bg-accent"
+                          style={{ width: `${Math.min(c.share_of_value, 100)}%` }}
+                        />
+                      </span>
+                      {c.share_of_value.toFixed(1)}%
+                    </span>
+                  </Td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </TableWrap>
         </div>
       </Card>
 
-      <div className="mb-3 flex flex-wrap items-end gap-3">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <SearchInput value={search} onChange={setSearch} placeholder="Search name or SKU" />
-        <div className="w-44">
-          <Select
-            label="Category"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="!mb-0"
-          >
-            <option value="">All categories</option>
-            {report.categories.map((c) => (
-              <option key={c.category_id ?? "none"} value={String(c.category_id ?? "")}>
-                {c.category_name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="w-40">
-          <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">All</option>
-            <option value="in">In stock</option>
-            <option value="low">Low</option>
-            <option value="out">Out of stock</option>
-          </Select>
-        </div>
+        <Filter
+          label="Category"
+          value={category}
+          onChange={setCategory}
+          options={[
+            { value: "", label: "All categories" },
+            ...report.categories.map((c) => ({
+              value: String(c.category_id ?? ""),
+              label: c.category_name,
+            })),
+          ]}
+        />
+        <Filter
+          label="Status"
+          value={status}
+          onChange={setStatus}
+          options={[
+            { value: "", label: "All stock" },
+            { value: "in", label: "In stock" },
+            { value: "low", label: "Low" },
+            { value: "out", label: "Out of stock" },
+          ]}
+        />
         <Button
-          className="mb-4"
+          icon="download"
+          className="ml-auto"
           onClick={() => {
             downloadCsv(
               `stock-${report.as_of}.csv`,
@@ -236,7 +265,7 @@ function StockTab({ companyId }: { companyId: number }) {
             toast.show(`Exported ${rows.length} rows`, "success");
           }}
         >
-          Export CSV
+          Export
         </Button>
       </div>
 
@@ -244,32 +273,32 @@ function StockTab({ companyId }: { companyId: number }) {
         {rows.length === 0 ? (
           <EmptyState title="Nothing matches" message="Adjust the filters above." />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[44rem] text-sm">
+          <div className="p-2">
+            <TableWrap min="42rem">
               <thead>
-                <tr className="border-b border-line text-left text-xs text-muted">
-                  <th className="px-5 py-2.5 font-medium">Item</th>
-                  <th className="w-24 py-2.5 text-right font-medium">Qty</th>
-                  <th className="w-32 py-2.5 text-right font-medium">At cost</th>
-                  <th className="w-32 py-2.5 text-right font-medium">At retail</th>
-                  <th className="w-28 px-5 py-2.5 text-right font-medium">Status</th>
+                <tr>
+                  <Th>Item</Th>
+                  <Th align="right">Qty</Th>
+                  <Th align="right">At cost</Th>
+                  <Th align="right">At retail</Th>
+                  <Th align="right">Status</Th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((i) => (
-                  <tr key={i.id} className="border-b border-line last:border-0">
-                    <td className="px-5 py-2.5">
+                  <tr key={i.id} className="transition hover:bg-subtle/60">
+                    <Td>
                       <p className="font-medium">{i.name}</p>
                       <p className="text-xs text-muted">
                         {[i.sku, i.category_name].filter(Boolean).join(" · ")}
                       </p>
-                    </td>
-                    <td className="tabular py-2.5 text-right">
+                    </Td>
+                    <Td align="right" className="tabular whitespace-nowrap">
                       {formatQty(i.quantity)} {i.unit}
-                    </td>
-                    <td className="tabular py-2.5 text-right">{formatMoney(i.stock_value)}</td>
-                    <td className="tabular py-2.5 text-right">{formatMoney(i.retail_value)}</td>
-                    <td className="px-5 py-2.5 text-right">
+                    </Td>
+                    <Td align="right" className="tabular">{formatMoney(i.stock_value)}</Td>
+                    <Td align="right" className="tabular">{formatMoney(i.retail_value)}</Td>
+                    <Td align="right">
                       {i.status === "out" ? (
                         <Badge tone="danger">Out</Badge>
                       ) : i.status === "low" ? (
@@ -277,11 +306,11 @@ function StockTab({ companyId }: { companyId: number }) {
                       ) : (
                         <Badge tone="success">In stock</Badge>
                       )}
-                    </td>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </TableWrap>
           </div>
         )}
       </Card>
@@ -349,13 +378,13 @@ function AgingTab({ companyId }: { companyId: number }) {
   return (
     <>
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <Stat label="Total owed" value={formatMoney(report.grand_total)} />
+        <Stat label="Total owed" value={formatMoney(report.grand_total)} icon="invoice" />
         <Stat
           label="Overdue 90+ days"
           value={formatMoney(report.totals.days_90_plus)}
           tone={report.totals.days_90_plus > 0 ? "danger" : undefined}
         />
-        <Stat label="Not yet due" value={formatMoney(report.totals.current)} />
+        <Stat label="Not yet due" value={formatMoney(report.totals.current)} icon="payment" />
       </div>
 
       <div className="mb-3 flex justify-end">
@@ -383,53 +412,58 @@ function AgingTab({ companyId }: { companyId: number }) {
             message="Every issued invoice has been paid."
           />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] text-sm">
+          <div className="p-2">
+            <TableWrap min="44rem">
               <thead>
-                <tr className="border-b border-line text-left text-xs text-muted">
-                  <th className="px-5 py-2.5 font-medium">Client</th>
+                <tr>
+                  <Th>Client</Th>
                   {cols.map(([label]) => (
-                    <th key={label} className="w-28 py-2.5 text-right font-medium">
+                    <Th key={label} align="right">
                       {label}
-                    </th>
+                    </Th>
                   ))}
-                  <th className="w-32 px-5 py-2.5 text-right font-medium">Total</th>
+                  <Th align="right">Total</Th>
                 </tr>
               </thead>
               <tbody>
                 {report.clients.map((c) => (
-                  <tr key={c.client_id} className="border-b border-line">
-                    <td className="px-5 py-2.5 font-medium">{c.client_name}</td>
+                  <tr key={c.client_id} className="transition hover:bg-subtle/60">
+                    <Td className="font-medium">{c.client_name}</Td>
                     {cols.map(([label, key]) => (
-                      <td
+                      <Td
                         key={label}
-                        className={`tabular py-2.5 text-right ${
-                          key === "days_90_plus" && c.buckets[key] > 0 ? "text-danger" : ""
+                        align="right"
+                        className={`tabular ${
+                          key === "days_90_plus" && c.buckets[key] > 0
+                            ? "font-medium text-danger"
+                            : c.buckets[key]
+                              ? ""
+                              : "text-muted"
                         }`}
                       >
                         {c.buckets[key] ? formatMoney(c.buckets[key]) : "—"}
-                      </td>
+                      </Td>
                     ))}
-                    <td className="tabular px-5 py-2.5 text-right font-medium">
+                    <Td align="right" className="tabular font-medium">
                       {formatMoney(c.total)}
-                    </td>
+                    </Td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="font-medium">
-                  <td className="px-5 py-2.5">All clients</td>
+                <tr className="font-semibold">
+                  <Td>All clients</Td>
                   {cols.map(([label, key]) => (
-                    <td key={label} className="tabular py-2.5 text-right">
+                    <Td key={label} align="right" className="tabular">
                       {formatMoney(report.totals[key])}
-                    </td>
+                    </Td>
                   ))}
-                  <td className="tabular px-5 py-2.5 text-right">
+                  <Td align="right" className="tabular">
                     {formatMoney(report.grand_total)}
-                  </td>
+                  </Td>
                 </tr>
               </tfoot>
-            </table>
+            </TableWrap>
           </div>
         )}
       </Card>
@@ -480,18 +514,19 @@ function GSTTab({ companyId }: { companyId: number }) {
   return (
     <>
       <div className="mb-5 flex flex-wrap items-end gap-3">
-        <div className="w-44">
-          <Field label="From" type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+        <div className="w-40">
+          <Field label="From" type="date" value={start} onChange={(e) => setStart(e.target.value)} className="!py-[7px]" />
         </div>
-        <div className="w-44">
-          <Field label="To" type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+        <div className="w-40">
+          <Field label="To" type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="!py-[7px]" />
         </div>
         <Button className="mb-4" variant="primary" loading={loading} onClick={() => void load()}>
           Run
         </Button>
         {report && (
           <Button
-            className="mb-4"
+            icon="download"
+            className="mb-4 ml-auto"
             onClick={() =>
               downloadCsv(
                 `gstr1-${report.start}-to-${report.end}.csv`,
@@ -506,7 +541,7 @@ function GSTTab({ companyId }: { companyId: number }) {
               )
             }
           >
-            Export B2B CSV
+            Export B2B
           </Button>
         )}
       </div>
@@ -528,7 +563,7 @@ function GSTTab({ companyId }: { companyId: number }) {
       ) : (
         <>
           <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Invoices" value={String(report.summary.invoice_count)} />
+            <Stat label="Invoices" value={String(report.summary.invoice_count)} icon="invoice" />
             <Stat label="Taxable value" value={formatMoney(report.net_summary.taxable_value)} />
             <Stat
               label="CGST + SGST"
@@ -544,78 +579,82 @@ function GSTTab({ companyId }: { companyId: number }) {
             CGST+SGST or IGST.
           </p>
 
-          <Card className="mb-5 p-5">
-            <p className="mb-3 text-sm font-medium">HSN summary</p>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[40rem] text-sm">
+          <Card className="mb-5">
+            <CardHead title="HSN summary" />
+            <div className="p-2">
+              <TableWrap min="40rem">
                 <thead>
-                  <tr className="border-b border-line text-left text-xs text-muted">
-                    <th className="py-2 font-medium">HSN</th>
-                    <th className="w-20 py-2 text-right font-medium">Rate</th>
-                    <th className="w-20 py-2 text-right font-medium">Qty</th>
-                    <th className="w-32 py-2 text-right font-medium">Taxable</th>
-                    <th className="w-28 py-2 text-right font-medium">CGST</th>
-                    <th className="w-28 py-2 text-right font-medium">SGST</th>
-                    <th className="w-28 py-2 text-right font-medium">IGST</th>
+                  <tr>
+                    <Th>HSN</Th>
+                    <Th align="right">Rate</Th>
+                    <Th align="right">Qty</Th>
+                    <Th align="right">Taxable</Th>
+                    <Th align="right">CGST</Th>
+                    <Th align="right">SGST</Th>
+                    <Th align="right">IGST</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {report.hsn_summary.map((h) => (
-                    <tr key={`${h.hsn_code}-${h.tax_rate}`} className="border-b border-line">
-                      <td className="py-2">{h.hsn_code || "—"}</td>
-                      <td className="tabular py-2 text-right">{h.tax_rate}%</td>
-                      <td className="tabular py-2 text-right">{h.total_qty}</td>
-                      <td className="tabular py-2 text-right">{formatMoney(h.taxable_value)}</td>
-                      <td className="tabular py-2 text-right">{formatMoney(h.cgst)}</td>
-                      <td className="tabular py-2 text-right">{formatMoney(h.sgst)}</td>
-                      <td className="tabular py-2 text-right">{formatMoney(h.igst)}</td>
+                    <tr key={`${h.hsn_code}-${h.tax_rate}`} className="transition hover:bg-subtle/60">
+                      <Td className="font-medium">{h.hsn_code || "—"}</Td>
+                      <Td align="right" className="tabular">{h.tax_rate}%</Td>
+                      <Td align="right" className="tabular">{h.total_qty}</Td>
+                      <Td align="right" className="tabular">{formatMoney(h.taxable_value)}</Td>
+                      <Td align="right" className="tabular">{formatMoney(h.cgst)}</Td>
+                      <Td align="right" className="tabular">{formatMoney(h.sgst)}</Td>
+                      <Td align="right" className="tabular">{formatMoney(h.igst)}</Td>
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </TableWrap>
             </div>
           </Card>
 
-          <Card className="p-5">
-            <p className="mb-3 text-sm font-medium">Invoices</p>
+          <Card>
+            <CardHead title="Invoices" />
             {report.invoices.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted">
-                No invoices issued in this period.
-              </p>
+              <EmptyState
+                icon="invoice"
+                title="Nothing in this period"
+                message="No invoices were issued between these dates."
+              />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[46rem] text-sm">
+              <div className="p-2">
+                <TableWrap min="44rem">
                   <thead>
-                    <tr className="border-b border-line text-left text-xs text-muted">
-                      <th className="py-2 font-medium">Invoice</th>
-                      <th className="py-2 font-medium">Client</th>
-                      <th className="w-32 py-2 font-medium">GSTIN</th>
-                      <th className="w-32 py-2 text-right font-medium">Taxable</th>
-                      <th className="w-28 py-2 text-right font-medium">Tax</th>
-                      <th className="w-32 py-2 text-right font-medium">Total</th>
+                    <tr>
+                      <Th>Invoice</Th>
+                      <Th>Client</Th>
+                      <Th>GSTIN</Th>
+                      <Th align="right">Taxable</Th>
+                      <Th align="right">Tax</Th>
+                      <Th align="right">Total</Th>
                     </tr>
                   </thead>
                   <tbody>
                     {report.invoices.map((i) => (
-                      <tr key={i.invoice_id} className="border-b border-line">
-                        <td className="py-2">
-                          <p>{i.invoice_number}</p>
+                      <tr key={i.invoice_id} className="transition hover:bg-subtle/60">
+                        <Td>
+                          <p className="font-medium">{i.invoice_number}</p>
                           <p className="text-xs text-muted">{formatDate(i.invoice_date)}</p>
-                        </td>
-                        <td className="py-2">
+                        </Td>
+                        <Td>
                           <p className="truncate">{i.client_name}</p>
                           <p className="text-xs text-muted">{i.place_of_supply || "—"}</p>
-                        </td>
-                        <td className="py-2 text-xs">{i.client_gstin || "Unregistered"}</td>
-                        <td className="tabular py-2 text-right">{formatMoney(i.taxable_value)}</td>
-                        <td className="tabular py-2 text-right">
+                        </Td>
+                        <Td className="text-xs">
+                          {i.client_gstin || <span className="text-muted">Unregistered</span>}
+                        </Td>
+                        <Td align="right" className="tabular">{formatMoney(i.taxable_value)}</Td>
+                        <Td align="right" className="tabular">
                           {formatMoney(i.cgst + i.sgst + i.igst)}
-                        </td>
-                        <td className="tabular py-2 text-right">{formatMoney(i.total)}</td>
+                        </Td>
+                        <Td align="right" className="tabular font-medium">{formatMoney(i.total)}</Td>
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </TableWrap>
               </div>
             )}
           </Card>

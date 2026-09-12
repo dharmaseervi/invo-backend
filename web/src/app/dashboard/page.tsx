@@ -11,7 +11,16 @@ import {
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { AppShell, NoCompany } from "@/components/AppShell";
-import { Badge, Button, Card, EmptyState, Select, Spinner } from "@/components/ui";
+import { Icon } from "@/components/icons";
+import {
+  Badge,
+  Button,
+  Card,
+  CardHead,
+  EmptyState,
+  Skeleton,
+  Stat,
+} from "@/components/ui";
 
 type Period = "week" | "month" | "year";
 
@@ -46,35 +55,46 @@ export default function DashboardPage() {
 
   if (authLoading || !company) {
     return (
-      <AppShell title="Dashboard">{authLoading ? <Spinner /> : <NoCompany />}</AppShell>
+      <AppShell title="Dashboard">{authLoading ? null : <NoCompany />}</AppShell>
     );
   }
 
   return (
     <AppShell
       title="Dashboard"
+      description="How the business is doing this period"
       actions={
-        <div className="w-36">
-          <Select
-            label="Period"
+        <div className="relative">
+          <select
+            aria-label="Period"
             value={period}
             onChange={(e) => setPeriod(e.target.value as Period)}
-            className="!mb-0"
+            className="h-9.5 appearance-none rounded-lg border border-line bg-surface pl-3 pr-8 text-sm shadow-xs outline-none focus:border-accent"
           >
             <option value="week">This week</option>
             <option value="month">This month</option>
             <option value="year">This year</option>
-          </Select>
+          </select>
+          <Icon
+            name="chevron-down"
+            className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+          />
         </div>
       }
     >
       {loading && !data ? (
-        <div className="grid place-items-center py-24">
-          <Spinner />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="p-4">
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="mt-3 h-6 w-28" />
+            </Card>
+          ))}
         </div>
       ) : error || !data ? (
         <Card>
           <EmptyState
+            icon="alert"
             title="Couldn't load the dashboard"
             message={error}
             action={<Button onClick={() => void load()}>Try again</Button>}
@@ -83,53 +103,56 @@ export default function DashboardPage() {
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Card className="p-4">
-              <p className="text-xs text-muted">Revenue</p>
-              <p className="tabular mt-1 text-lg font-semibold">
-                {formatMoney(data.revenue.total)}
-              </p>
-              {data.revenue.change_percent !== 0 && (
-                <p
-                  className={`mt-1 text-xs ${
-                    data.revenue.change_percent > 0 ? "text-success" : "text-danger"
-                  }`}
-                >
-                  {data.revenue.change_percent > 0 ? "▲" : "▼"}{" "}
-                  {Math.abs(data.revenue.change_percent).toFixed(1)}% on the previous period
-                </p>
-              )}
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-muted">Invoices</p>
-              <p className="tabular mt-1 text-lg font-semibold">{data.counts.invoices}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-muted">Clients</p>
-              <p className="tabular mt-1 text-lg font-semibold">{data.counts.clients}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-muted">Items</p>
-              <p className="tabular mt-1 text-lg font-semibold">{data.counts.items}</p>
-            </Card>
+            <Stat
+              label="Revenue"
+              value={formatMoney(data.revenue.total)}
+              icon="payment"
+              sub={
+                data.revenue.change_percent !== 0 && (
+                  <span
+                    className={
+                      data.revenue.change_percent > 0 ? "text-success" : "text-danger"
+                    }
+                  >
+                    {data.revenue.change_percent > 0 ? "↑" : "↓"}{" "}
+                    {Math.abs(data.revenue.change_percent).toFixed(1)}% on the previous
+                    period
+                  </span>
+                )
+              }
+            />
+            <Stat label="Invoices" value={String(data.counts.invoices)} icon="invoice" />
+            <Stat label="Clients" value={String(data.counts.clients)} icon="client" />
+            <Stat label="Items" value={String(data.counts.items)} icon="item" />
           </div>
 
           {data.revenue.trend.length > 0 && <Trend trend={data.revenue.trend} />}
 
           <Card className="mt-5">
-            <div className="flex items-center justify-between border-b border-line px-5 py-3">
-              <p className="text-sm font-medium">Recent invoices</p>
-              <Link href="/invoices" className="text-sm text-accent hover:underline">
-                View all
-              </Link>
-            </div>
+            <CardHead
+              title="Recent invoices"
+              action={
+                <Link
+                  href="/invoices"
+                  className="text-[13px] font-medium text-accent hover:underline"
+                >
+                  View all
+                </Link>
+              }
+            />
             {data.recent_invoices.length === 0 ? (
-              <p className="py-10 text-center text-sm text-muted">
-                No invoices in this period.
-              </p>
+              <EmptyState
+                icon="invoice"
+                title="Nothing yet this period"
+                message="Invoices you raise will show up here."
+              />
             ) : (
               <ul className="divide-y divide-line">
                 {data.recent_invoices.map((inv) => (
-                  <li key={inv.id} className="flex items-center gap-4 px-5 py-3">
+                  <li
+                    key={inv.id}
+                    className="flex items-center gap-4 px-5 py-3 transition hover:bg-subtle/60"
+                  >
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{inv.invoice_number}</p>
                       <p className="truncate text-xs text-muted">
@@ -141,11 +164,15 @@ export default function DashboardPage() {
                         inv.status === "paid"
                           ? "success"
                           : inv.status === "cancelled"
-                            ? "muted"
-                            : "warning"
+                            ? "neutral"
+                            : inv.status === "draft"
+                              ? "neutral"
+                              : "info"
                       }
                     >
-                      {inv.status}
+                      {/* The API returns the raw column value; capitalise it rather
+                          than showing "issued" mid-sentence in a badge. */}
+                      {inv.status.charAt(0).toUpperCase() + inv.status.slice(1)}
                     </Badge>
                     <p className="tabular w-28 text-right text-sm font-medium">
                       {formatMoney(inv.total)}
@@ -168,20 +195,42 @@ export default function DashboardPage() {
  */
 function Trend({ trend }: { trend: { date: string; total: number }[] }) {
   const max = Math.max(...trend.map((d) => d.total), 1);
+  const best = trend.reduce((a, b) => (b.total > a.total ? b : a), trend[0]);
   return (
-    <Card className="mt-5 p-5">
-      <p className="mb-4 text-sm font-medium">Last 7 days</p>
-      <div className="flex h-32 items-end gap-2">
-        {trend.map((d) => (
-          <div key={d.date} className="flex flex-1 flex-col items-center gap-1.5">
+    <Card className="mt-5">
+      <CardHead
+        title="Last 7 days"
+        action={
+          <span className="text-xs text-muted">Best day {formatMoney(best?.total ?? 0)}</span>
+        }
+      />
+      <div className="px-5 py-5">
+        <div className="flex h-36 items-end gap-1.5 border-b border-line pb-px">
+          {trend.map((d) => (
             <div
-              className="w-full rounded-t bg-accent/80"
-              style={{ height: `${Math.max((d.total / max) * 100, 2)}%` }}
+              key={d.date}
+              className="group flex h-full flex-1 flex-col justify-end gap-1.5"
               title={`${d.date}: ${formatMoney(d.total)}`}
-            />
-            <span className="text-[10px] text-muted">{d.date.slice(8)}</span>
-          </div>
-        ))}
+            >
+              <span className="tabular text-center text-[10px] text-muted opacity-0 transition group-hover:opacity-100">
+                {d.total > 0 ? formatMoney(d.total) : ""}
+              </span>
+              <div
+                className="w-full rounded-t-md bg-accent/25 transition group-hover:bg-accent/45"
+                style={{ height: `${Math.max((d.total / max) * 100, 2)}%` }}
+              >
+                <div className="h-1 w-full rounded-t-md bg-accent" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-1.5 flex gap-1.5">
+          {trend.map((d) => (
+            <span key={d.date} className="tabular flex-1 text-center text-[10px] text-muted">
+              {d.date.slice(8)}
+            </span>
+          ))}
+        </div>
       </div>
     </Card>
   );

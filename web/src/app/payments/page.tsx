@@ -23,7 +23,7 @@ import {
   Field,
   Modal,
   Select,
-  Spinner,
+  SkeletonRows,
   useToast,
 } from "@/components/ui";
 
@@ -63,36 +63,37 @@ export default function PaymentsPage() {
 
   if (authLoading || !company) {
     return (
-      <AppShell title="Payments">{authLoading ? <Spinner /> : <NoCompany />}</AppShell>
+      <AppShell title="Payments">{authLoading ? null : <NoCompany />}</AppShell>
     );
   }
 
   return (
     <AppShell
       title="Payments"
+      description="Applied to the client's oldest open invoices first"
       actions={
-        <Button variant="primary" onClick={() => setRecording(true)}>
+        <Button variant="primary" icon="plus" onClick={() => setRecording(true)}>
           Record payment
         </Button>
       }
     >
       <Card>
         {loading && rows.length === 0 ? (
-          <div className="grid place-items-center py-16">
-            <Spinner />
-          </div>
+          <SkeletonRows />
         ) : error ? (
           <EmptyState
+            icon="alert"
             title="Couldn't load payments"
             message={error}
             action={<Button onClick={() => void load()}>Try again</Button>}
           />
         ) : rows.length === 0 ? (
           <EmptyState
+            icon="payment"
             title="No payments yet"
             message="Record what customers pay — it settles their oldest open invoices first."
             action={
-              <Button variant="primary" onClick={() => setRecording(true)}>
+              <Button variant="primary" icon="plus" onClick={() => setRecording(true)}>
                 Record payment
               </Button>
             }
@@ -100,8 +101,11 @@ export default function PaymentsPage() {
         ) : (
           <ul className="divide-y divide-line">
             {rows.map((p) => (
-              <li key={p.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
-                <div className="min-w-0 flex-1">
+              <li
+                key={p.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
+              >
+                <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <p className="truncate text-sm font-medium">{p.client_name}</p>
                   <p className="mt-0.5 truncate text-sm text-muted">
                     {[
@@ -116,7 +120,7 @@ export default function PaymentsPage() {
                       .join(" · ")}
                   </p>
                 </div>
-                <p className="tabular w-32 text-right text-sm font-medium text-success">
+                <p className="tabular ml-auto text-right text-sm font-medium text-success sm:w-32">
                   {formatMoney(p.amount)}
                 </p>
               </li>

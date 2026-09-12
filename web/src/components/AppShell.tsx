@@ -2,44 +2,70 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { getToken } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Spinner } from "@/components/ui";
-
-const NAV = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/invoices", label: "Invoices" },
-  { href: "/estimates", label: "Estimates" },
-  { href: "/payments", label: "Payments" },
-  { href: "/clients", label: "Clients" },
-  { href: "/items", label: "Items" },
-  { href: "/expenses", label: "Expenses" },
-  { href: "/credit-notes", label: "Credit notes" },
-  { href: "/reports", label: "Reports" },
-  { href: "/settings", label: "Settings" },
-];
+import { Icon, type IconName } from "@/components/icons";
+import { Button, Card, Spinner } from "@/components/ui";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 /**
- * Chrome for every signed-in screen: navigation, the company being worked in, and the
- * route guard.
- *
- * The guard is presentation only — the server rejects an unauthenticated request no
- * matter what this renders. It exists so a signed-out visitor never sees an empty
- * shell flash before the redirect.
+ * Grouped because ten flat links is a list to read, not a menu to navigate: the
+ * headings let someone find "credit notes" by knowing it is a sales document rather
+ * than by scanning every item.
  */
+const NAV: { group: string; items: { href: string; label: string; icon: IconName }[] }[] = [
+  {
+    group: "Overview",
+    items: [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" }],
+  },
+  {
+    group: "Sales",
+    items: [
+      { href: "/invoices", label: "Invoices", icon: "invoice" },
+      { href: "/estimates", label: "Estimates", icon: "estimate" },
+      { href: "/credit-notes", label: "Credit notes", icon: "credit" },
+    ],
+  },
+  {
+    group: "Money",
+    items: [
+      { href: "/payments", label: "Payments", icon: "payment" },
+      { href: "/expenses", label: "Expenses", icon: "expense" },
+      { href: "/ledger", label: "Ledger", icon: "ledger" },
+    ],
+  },
+  {
+    group: "Records",
+    items: [
+      { href: "/clients", label: "Clients", icon: "client" },
+      { href: "/items", label: "Items", icon: "item" },
+    ],
+  },
+  {
+    group: "Insight",
+    items: [
+      { href: "/reports", label: "Reports", icon: "report" },
+      { href: "/settings", label: "Settings", icon: "settings" },
+    ],
+  },
+];
+
 export function AppShell({
   title,
+  description,
   actions,
   children,
 }: {
   title: string;
+  description?: string;
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const { loading, company, companies, selectCompany, signOut } = useAuth();
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && !getToken()) router.replace("/login");
@@ -47,83 +73,166 @@ export function AppShell({
 
   if (loading) {
     return (
-      <div className="grid min-h-screen place-items-center">
+      <div className="grid min-h-screen place-items-center text-muted">
         <Spinner />
       </div>
     );
   }
 
+  const sidebar = (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2.5 px-4 py-4">
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-[15px] font-semibold text-accent-fg">
+          ₹
+        </span>
+        <span className="text-[15px] font-semibold tracking-tight">Invo Billing</span>
+      </div>
+
+      <nav className="scroll-slim flex-1 overflow-y-auto px-2.5 pb-4">
+        {NAV.map((section) => (
+          <div key={section.group} className="mb-4">
+            <p className="px-2.5 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+              {section.group}
+            </p>
+            <ul className="space-y-0.5">
+              {section.items.map((tab) => {
+                const active = pathname?.startsWith(tab.href);
+                return (
+                  <li key={tab.href}>
+                    <Link
+                      href={tab.href}
+                      // Closed on tap rather than on a route change: the drawer should
+                      // not stay over the page it just navigated to.
+                      onClick={() => setNavOpen(false)}
+                      aria-current={active ? "page" : undefined}
+                      className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition ${
+                        active
+                          ? "bg-accent-soft font-medium text-accent"
+                          : "text-ink-soft hover:bg-subtle"
+                      }`}
+                    >
+                      <Icon name={tab.icon} className="h-4 w-4 shrink-0" />
+                      {tab.label}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </nav>
+
+      <div className="border-t border-line p-2.5">
+        <ThemeToggle />
+        {companies.length > 1 ? (
+          <div className="relative mb-1.5">
+            <select
+              aria-label="Company"
+              value={company?.id ?? ""}
+              onChange={(e) => selectCompany(Number(e.target.value))}
+              className="w-full appearance-none rounded-lg border border-line bg-surface px-2.5 py-2 pr-8 text-[13px] outline-none focus:border-accent"
+            >
+              {companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <Icon
+              name="chevron-down"
+              className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+            />
+          </div>
+        ) : (
+          company && (
+            <p className="truncate px-2.5 pb-1.5 text-[13px] font-medium">{company.name}</p>
+          )
+        )}
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-muted transition hover:bg-subtle hover:text-ink"
+        >
+          <Icon name="logout" className="h-4 w-4" />
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-line bg-surface">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-6 py-3">
-          <span className="text-sm font-semibold tracking-tight">Invo Billing</span>
+    <div className="min-h-screen lg:flex">
+      {/* Desktop rail */}
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-line bg-surface lg:block">
+        {sidebar}
+      </aside>
 
-          <nav className="flex flex-wrap items-center gap-1">
-            {NAV.map((tab) => {
-              const active = pathname?.startsWith(tab.href);
-              return (
-                <Link
-                  key={tab.href}
-                  href={tab.href}
-                  aria-current={active ? "page" : undefined}
-                  className={`rounded-lg px-3 py-1.5 text-sm transition ${
-                    active ? "bg-subtle font-medium text-ink" : "text-muted hover:bg-subtle"
-                  }`}
-                >
-                  {tab.label}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="ml-auto flex items-center gap-3">
-            {/* Only worth showing when there is a choice to make. */}
-            {companies.length > 1 ? (
-              <select
-                aria-label="Company"
-                value={company?.id ?? ""}
-                onChange={(e) => selectCompany(Number(e.target.value))}
-                className="rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-accent"
-              >
-                {companies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              company && <span className="text-sm text-muted">{company.name}</span>
-            )}
-            <Button onClick={() => void signOut()}>Sign out</Button>
+      {/* Mobile drawer */}
+      {navOpen && (
+        <div
+          className="animate-fade-in fixed inset-0 z-40 bg-ink/40 lg:hidden"
+          onMouseDown={() => setNavOpen(false)}
+        >
+          <div
+            className="animate-slide-in h-full w-64 border-r border-line bg-surface"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {sidebar}
           </div>
         </div>
-      </header>
+      )}
 
-      <main className="mx-auto max-w-6xl px-6 py-8">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-          {actions}
-        </div>
-        {children}
-      </main>
+      <div className="min-w-0 flex-1">
+        <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-3.5 sm:px-6">
+            <button
+              type="button"
+              onClick={() => setNavOpen(true)}
+              aria-label="Open menu"
+              className="rounded-lg p-1.5 text-muted hover:bg-subtle hover:text-ink lg:hidden"
+            >
+              <Icon name="menu" className="h-5 w-5" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-lg font-semibold sm:text-xl">{title}</h1>
+              {description && (
+                <p className="mt-0.5 hidden truncate text-[13px] text-muted sm:block">
+                  {description}
+                </p>
+              )}
+            </div>
+            {actions && <div className="flex items-center gap-2">{actions}</div>}
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">{children}</main>
+      </div>
     </div>
   );
 }
 
 /**
- * Shown instead of a list when the account has no company. Every clients/items request
- * is scoped to one, so there is nothing meaningful to render — and no way to create
- * anything — until a company exists.
+ * Shown instead of a screen when the account has no company. Every record belongs to
+ * one, so there is nothing to list and nothing that can be created until it exists.
  */
 export function NoCompany() {
   return (
-    <div className="rounded-xl border border-line bg-surface px-6 py-16 text-center shadow-sm">
-      <p className="text-sm font-medium">No company yet</p>
-      <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted">
-        Clients, items and invoices all belong to a company. Create one in Settings to
-        get started.
+    <Card className="px-6 py-16 text-center">
+      <div className="mx-auto mb-4 grid h-11 w-11 place-items-center rounded-full bg-subtle text-muted">
+        <Icon name="settings" className="h-5 w-5" />
+      </div>
+      <p className="text-sm font-semibold">No company yet</p>
+      <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-muted">
+        Invoices, clients and items all belong to a company. Create yours to get started
+        — its name, GSTIN and state are what every invoice prints as the seller.
       </p>
-    </div>
+      <div className="mt-5 flex justify-center">
+        <Link href="/settings">
+          <Button variant="primary" icon="settings">
+            Set up company
+          </Button>
+        </Link>
+      </div>
+    </Card>
   );
 }

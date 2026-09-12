@@ -17,8 +17,9 @@ import {
   EmptyState,
   ErrorText,
   Field,
+  IconButton,
   Modal,
-  Spinner,
+  SkeletonRows,
   TextArea,
   useToast,
 } from "@/components/ui";
@@ -71,36 +72,37 @@ export default function ExpensesPage() {
 
   if (authLoading || !company) {
     return (
-      <AppShell title="Expenses">{authLoading ? <Spinner /> : <NoCompany />}</AppShell>
+      <AppShell title="Expenses">{authLoading ? null : <NoCompany />}</AppShell>
     );
   }
 
   return (
     <AppShell
       title="Expenses"
+      description="What the business spends, so profit is more than sales minus guesswork"
       actions={
-        <Button variant="primary" onClick={() => setCreating(true)}>
+        <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
           Add expense
         </Button>
       }
     >
       <Card>
         {loading && rows.length === 0 ? (
-          <div className="grid place-items-center py-16">
-            <Spinner />
-          </div>
+          <SkeletonRows />
         ) : error ? (
           <EmptyState
+            icon="alert"
             title="Couldn't load expenses"
             message={error}
             action={<Button onClick={() => void load()}>Try again</Button>}
           />
         ) : rows.length === 0 ? (
           <EmptyState
+            icon="expense"
             title="No expenses yet"
             message="Track what the business spends, so profit is more than sales minus guesswork."
             action={
-              <Button variant="primary" onClick={() => setCreating(true)}>
+              <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
                 Add expense
               </Button>
             }
@@ -108,21 +110,27 @@ export default function ExpensesPage() {
         ) : (
           <ul className="divide-y divide-line">
             {rows.map((e) => (
-              <li key={e.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
-                <div className="min-w-0 flex-1">
+              <li
+                key={e.id}
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
+              >
+                <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <p className="truncate text-sm font-medium">{e.name}</p>
                   <p className="mt-0.5 truncate text-sm text-muted">
                     {[formatDate(e.date), e.description].filter(Boolean).join(" · ")}
                   </p>
                 </div>
-                <p className="tabular w-28 text-right text-sm font-medium">
+                <p className="tabular ml-auto text-right text-sm font-medium sm:w-28">
                   {formatMoney(e.amount)}
                 </p>
-                <div className="flex gap-2">
-                  <Button onClick={() => setEditing(e)}>Edit</Button>
-                  <Button variant="danger" onClick={() => void remove(e)}>
-                    Delete
-                  </Button>
+                <div className="flex items-center gap-1">
+                  <IconButton icon="edit" label={`Edit ${e.name}`} onClick={() => setEditing(e)} />
+                  <IconButton
+                    icon="trash"
+                    label={`Delete ${e.name}`}
+                    onClick={() => void remove(e)}
+                    className="hover:text-danger"
+                  />
                 </div>
               </li>
             ))}

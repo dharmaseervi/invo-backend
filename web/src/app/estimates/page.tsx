@@ -25,6 +25,7 @@ import {
   Field,
   Modal,
   Select,
+  SkeletonRows,
   Spinner,
   useToast,
 } from "@/components/ui";
@@ -33,8 +34,8 @@ function StatusBadge({ status, converted }: { status: string; converted: boolean
   if (converted) return <Badge tone="success">Invoiced</Badge>;
   if (status === "accepted") return <Badge tone="success">Accepted</Badge>;
   if (status === "rejected") return <Badge tone="danger">Rejected</Badge>;
-  if (status === "sent") return <Badge tone="muted">Sent</Badge>;
-  return <Badge>Draft</Badge>;
+  if (status === "sent") return <Badge tone="info">Sent</Badge>;
+  return <Badge tone="neutral">Draft</Badge>;
 }
 
 export default function EstimatesPage() {
@@ -82,36 +83,37 @@ export default function EstimatesPage() {
 
   if (authLoading || !company) {
     return (
-      <AppShell title="Estimates">{authLoading ? <Spinner /> : <NoCompany />}</AppShell>
+      <AppShell title="Estimates">{authLoading ? null : <NoCompany />}</AppShell>
     );
   }
 
   return (
     <AppShell
       title="Estimates"
+      description="Quote a price first — an accepted estimate converts to an invoice"
       actions={
-        <Button variant="primary" onClick={() => setCreating(true)}>
+        <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
           New estimate
         </Button>
       }
     >
       <Card>
         {loading && rows.length === 0 ? (
-          <div className="grid place-items-center py-16">
-            <Spinner />
-          </div>
+          <SkeletonRows />
         ) : error ? (
           <EmptyState
+            icon="alert"
             title="Couldn't load estimates"
             message={error}
             action={<Button onClick={reload}>Try again</Button>}
           />
         ) : rows.length === 0 ? (
           <EmptyState
+            icon="estimate"
             title="No estimates yet"
             message="Quote a price before committing to an invoice — an accepted estimate converts to one."
             action={
-              <Button variant="primary" onClick={() => setCreating(true)}>
+              <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
                 New estimate
               </Button>
             }
@@ -121,9 +123,9 @@ export default function EstimatesPage() {
             {rows.map((est) => (
               <li
                 key={est.id}
-                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4"
+                className="group flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 transition hover:bg-subtle/60"
               >
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="truncate text-sm font-medium">{est.estimate_number}</p>
                     <StatusBadge
@@ -136,10 +138,12 @@ export default function EstimatesPage() {
                     {est.expiry_date ? ` · expires ${formatDate(est.expiry_date)}` : ""}
                   </p>
                 </div>
-                <p className="tabular w-32 text-right text-sm font-medium">
+                <p className="tabular ml-auto text-right text-sm font-medium sm:w-32">
                   {formatMoney(est.total)}
                 </p>
-                <Button onClick={() => setViewing(est.id)}>Open</Button>
+                <Button size="sm" onClick={() => setViewing(est.id)}>
+                  Open
+                </Button>
               </li>
             ))}
           </ul>
