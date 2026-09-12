@@ -37,9 +37,10 @@ export function Button({
     md: "h-10 px-3.5 text-label-14",
   }[size];
   const variants = {
-    // Geist reserves hue for meaning; the primary action is the highest-contrast fill
-    // on the page, which is near-black in light and near-white in dark.
-    primary: "bg-solid text-solid-fg hover:bg-solid-hover",
+    // Violet rather than Geist's neutral high-contrast fill: the primary action is
+    // the one place the product's brand has to match the iOS app, which a shopkeeper
+    // moves between during the same day. Hue still carries meaning everywhere else.
+    primary: "bg-accent text-accent-fg hover:bg-accent-hover",
     secondary:
       "border border-line bg-surface text-ink hover:border-line-strong hover:bg-subtle",
     ghost: "text-muted hover:bg-subtle hover:text-ink",

@@ -41,7 +41,7 @@ export function AuthShell({
             href="/"
             className="inline-flex items-center gap-2.5 rounded-lg px-1 py-0.5"
           >
-            <span className="grid h-8 w-8 place-items-center rounded-[var(--radius-base)] bg-solid text-label-14 font-medium text-solid-fg">
+            <span className="grid h-8 w-8 place-items-center rounded-[var(--radius-base)] bg-accent text-label-14 font-medium text-accent-fg">
               ₹
             </span>
             <span className="text-heading-16">Invo Billing</span>

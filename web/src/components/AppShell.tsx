@@ -82,7 +82,7 @@ export function AppShell({
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2.5 px-4 py-4">
-        <span className="grid h-7 w-7 place-items-center rounded-[var(--radius-base)] bg-solid text-[13px] font-medium text-solid-fg">
+        <span className="grid h-7 w-7 place-items-center rounded-[var(--radius-base)] bg-accent text-[13px] font-medium text-accent-fg">
           ₹
         </span>
         <span className="text-heading-16">Invo Billing</span>
