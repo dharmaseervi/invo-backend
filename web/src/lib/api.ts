@@ -217,3 +217,153 @@ export function formatDate(value: string | null | undefined): string {
     year: "numeric",
   });
 }
+
+/* ---------- Clients ---------- */
+
+export type Client = {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+};
+
+/** The fields the create/update endpoints accept. */
+export type ClientInput = Omit<Client, "id"> & { company_id: number };
+
+export const clients = {
+  /** `search` matches name, phone or email, and is applied by the server. */
+  list: (companyId: number, search?: string, signal?: AbortSignal) =>
+    api<{ clients: Client[] }>(
+      `/companies/${companyId}/clients${search ? `?search=${encodeURIComponent(search)}` : ""}`,
+      { signal },
+    ),
+  create: (body: ClientInput) => api<unknown>("/clients", { method: "POST", body }),
+  update: (id: number, body: ClientInput) =>
+    api<unknown>(`/clients/${id}`, { method: "PUT", body }),
+  /** 409 when the client has invoices, payments or ledger history. */
+  remove: (id: number) => api<unknown>(`/clients/${id}`, { method: "DELETE" }),
+};
+
+/**
+ * A client's billing or shipping address, stored separately from the client row
+ * because an invoice snapshots it — and because the GSTIN lives here, which is what
+ * decides CGST/SGST against IGST on every invoice raised for them.
+ */
+export type ClientAddress = {
+  type: "billing" | "shipping";
+  name?: string | null;
+  line1: string;
+  line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  gst_number?: string | null;
+};
+
+export const clientAddresses = {
+  /** Returns `{ data: null }` when the client has no address of that type yet. */
+  get: (clientId: number, type: "billing" | "shipping") =>
+    api<{ data: ClientAddress | null }>(`/clients/${clientId}/address?type=${type}`),
+  save: (clientId: number, body: ClientAddress) =>
+    api<unknown>(`/clients/${clientId}/address`, { method: "POST", body }),
+};
+
+/* ---------- Categories ---------- */
+
+export type Category = {
+  id: number;
+  name: string;
+  user_id: number;
+  company_id: number;
+  default_hsn_code?: string | null;
+  default_tax_rate?: number | null;
+};
+
+export const categories = {
+  list: (companyId: number) =>
+    api<{ categories: Category[] }>(`/categories/${companyId}`),
+  create: (body: {
+    name: string;
+    company_id: number;
+    default_hsn_code?: string | null;
+    default_tax_rate?: number | null;
+  }) => api<unknown>("/categories", { method: "POST", body }),
+};
+
+/* ---------- Items ---------- */
+
+export type Item = {
+  id: number;
+  name: string;
+  /** Null is meaningful: the item has no category. */
+  category_id: number | null;
+  sku: string;
+  unit: string;
+  description: string;
+  cost_price: number;
+  price: number;
+  quantity: number;
+  low_stock_alert: number;
+  tax_rate: number;
+  hsn_code: string;
+  company_id: number;
+  user_id: number;
+};
+
+export type ItemInput = Omit<Item, "id" | "user_id">;
+
+export type StockMovement = {
+  id: number;
+  item_id: number;
+  /** restock | sale | adjustment | initial */
+  movement_type: string;
+  quantity_change: number;
+  previous_quantity: number;
+  new_quantity: number;
+  reference?: string | null;
+  note?: string | null;
+  created_at: string;
+};
+
+export const items = {
+  /**
+   * Keyset pagination. `cursor` is opaque — hand back whatever the last page
+   * returned as `next_cursor`; omitting `limit` asks the server for everything,
+   * which is what the catalogue screens deliberately avoid.
+   */
+  list: (
+    companyId: number,
+    opts: { limit?: number; cursor?: string; search?: string; signal?: AbortSignal } = {},
+  ) => {
+    const q = new URLSearchParams();
+    if (opts.limit) q.set("limit", String(opts.limit));
+    if (opts.cursor) q.set("cursor", opts.cursor);
+    if (opts.search) q.set("search", opts.search);
+    const qs = q.toString();
+    return api<{ items: Item[]; next_cursor?: string }>(
+      `/items/${companyId}/all${qs ? `?${qs}` : ""}`,
+      { signal: opts.signal },
+    );
+  },
+  create: (body: ItemInput) => api<unknown>("/items", { method: "POST", body }),
+  update: (id: number, body: ItemInput) =>
+    api<unknown>(`/items/${id}`, { method: "PUT", body }),
+  /** Adds to stock and records why, as distinct from editing the quantity directly. */
+  restock: (id: number, body: { quantity: number; reference?: string; note?: string }) =>
+    api<{ quantity: number }>(`/item/${id}/restock`, { method: "POST", body }),
+  movements: (id: number) =>
+    api<{ movements: StockMovement[] }>(`/item/${id}/movements`),
+};
+
+/** Whole numbers, grouped the Indian way — quantities, not money. */
+export function formatQty(value: number | null | undefined): string {
+  const n = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return n.toLocaleString("en-IN");
+}

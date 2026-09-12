@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
-import { ToastHost } from "@/components/ui";
+import { ToastProvider } from "@/components/ui";
 
 // System fonts on purpose: next/font/google fetches at build time, which would make
 // the Docker build depend on network access to Google. Not worth the fragility.
@@ -19,8 +19,7 @@ export default function RootLayout({
     <html lang="en" className="h-full antialiased">
       <body className="h-full">
         <AuthProvider>
-          {children}
-          <ToastHost />
+          <ToastProvider>{children}</ToastProvider>
         </AuthProvider>
       </body>
     </html>
