@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
@@ -162,13 +163,18 @@ export default function ClientsPage() {
                 <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-soft text-[13px] font-semibold uppercase text-accent">
                   {client.name.trim().charAt(0) || "?"}
                 </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{client.name}</p>
+                <Link
+                  href={`/clients/view?id=${client.id}`}
+                  className="min-w-0 flex-1"
+                >
+                  <p className="truncate text-sm font-medium hover:text-accent">
+                    {client.name}
+                  </p>
                   <p className="mt-0.5 truncate text-sm text-muted">
                     {[client.phone, client.email].filter(Boolean).join(" · ") ||
                       "No contact details"}
                   </p>
-                </div>
+                </Link>
                 <p className="ml-auto hidden truncate text-sm text-muted sm:block sm:w-48">
                   {[client.city, client.state].filter(Boolean).join(", ") || "—"}
                 </p>

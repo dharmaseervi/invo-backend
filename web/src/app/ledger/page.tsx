@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ApiError,
   clients as clientsApi,
@@ -37,10 +38,22 @@ const SOURCE_LABEL: Record<string, string> = {
 };
 
 export default function LedgerPage() {
+  return (
+    // useSearchParams suspends during prerender, so the boundary is required.
+    <Suspense fallback={<AppShell title="Ledger">{null}</AppShell>}>
+      <Ledger />
+    </Suspense>
+  );
+}
+
+function Ledger() {
+  const params = useSearchParams();
   const { company, loading: authLoading } = useAuth();
 
   const [clientList, setClientList] = useState<Client[]>([]);
-  const [clientId, setClientId] = useState("");
+  // Pre-filtered when arrived at from a client's page, so the link lands on that
+  // account rather than on everything.
+  const [clientId, setClientId] = useState(params.get("client") ?? "");
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

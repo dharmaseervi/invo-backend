@@ -252,6 +252,24 @@ export const clients = {
     api<unknown>(`/clients/${id}`, { method: "PUT", body }),
   /** 409 when the client has invoices, payments or ledger history. */
   remove: (id: number) => api<unknown>(`/clients/${id}`, { method: "DELETE" }),
+  /** Every invoice raised for this client, newest first. */
+  invoices: (clientId: number) =>
+    api<{ data: ClientInvoiceRow[] }>(`/clients/${clientId}/invoices`),
+};
+
+/** The per-client invoice list returns fewer columns than the main one. */
+export type ClientInvoiceRow = {
+  id: number;
+  invoice_number: string;
+  invoice_date: string;
+  due_date: string;
+  status: string;
+  subtotal: number;
+  tax: number;
+  total: number;
+  paid_amount: number;
+  remaining_amount: number;
+  created_at: string;
 };
 
 /**
