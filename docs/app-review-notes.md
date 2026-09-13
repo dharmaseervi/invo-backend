@@ -31,6 +31,8 @@ Sections 2 and 3 are for you, not for Apple.
 >
 > **It does not handle, hold, transfer or process money.** There is no payment gateway, card entry, wallet, bank connection or in-app purchase. Where the app says "payment", the user is recording cash or a bank transfer that already happened outside the app, exactly as they would in a paper ledger.
 >
+> Our privacy label declares Payment Info because the user can save their own bank details - name, account number, IFSC - to print in their invoice footer, as on any printed Indian invoice. The app never validates or transacts against them; they are text on a document.
+>
 > **Demo account**
 > Email: dharmaseervijb18239+demo@gmail.com
 > Password: DemoScreens#2026
@@ -47,13 +49,13 @@ Sections 2 and 3 are for you, not for Apple.
 >
 > 3. Clients - name, phone, email, address, state and GSTIN. Tap a client for their invoices, outstanding balance and ledger.
 >
-> 4. Items - SKU, HSN code, unit, cost price, selling price, GST rate, stock quantity and low-stock threshold. Tap an item to record stock received and see its movement history. Items can be found by scanning a barcode with the camera (permission requested on first use). Items can also be printed as shelf labels on a Brother QL-series printer over Wi-Fi or Bluetooth; this needs Local Network permission and the physical printer. A reviewer without that hardware will see the printer search find no devices. That is expected and is not a hidden feature.
+> 4. Items - SKU, HSN code, unit, cost price, selling price, GST rate, stock quantity and low-stock threshold. Tap an item to record stock received and see its movement history. Items can be found by scanning a barcode with the camera (permission requested on first use). Items can also be printed as shelf labels on a Brother QL-series printer over Wi-Fi or Bluetooth; this needs Local Network permission and the physical printer. Without that hardware the printer search finds no devices. That is expected, not a hidden feature.
 >
 > 5. More - Estimates (quotations, convertible to invoices); Credit notes (returns stock and reduces the GST owed); Payments (applied to that client's oldest unpaid invoices); Expenses; Ledger (running balance per client); Reports (stock on hand, receivables ageing, and GSTR-1 with CSV export); Company settings (name, GSTIN, address and bank details, printed on the invoice PDF); Invoice template (three PDF layouts); Biometric lock (optional, off by default); Account (sign out, or delete the account and all its data).
 >
 > **Permissions, and why**
 >
-> Camera - scanning a product barcode; optional, items can always be typed. Photo Library - reading a barcode from an existing photo; optional. Local Network - finding a Brother label printer; optional, used only on the label printing screen. Face ID - the optional app lock; off by default. Notifications - overdue invoice reminders; optional, and only requested if turned on in More.
+> Camera - scanning a product barcode; optional, items can be typed. Photo Library - reading a barcode from a saved photo; optional. Local Network - finding a Brother label printer; used only on the label screen. Face ID - the optional app lock; off by default. Notifications - overdue reminders; only requested if turned on in More.
 >
 > **There are no hidden, dormant or undocumented features.** The app contains no web views and loads no remote code or remote configuration. Development-only helpers are excluded from release builds at compile time and are not present in this binary.
 >
