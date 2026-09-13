@@ -37,9 +37,11 @@ Sections 2 and 3 are for you, not for Apple.
 > Password: DemoScreens#2026
 >
 > The account is email-verified and pre-loaded with a sample business — "Sharma
-> Textiles & Traders" — containing 3 clients, 3 stock items, 4 invoices (one paid, one
-> partly paid, one overdue, one draft), 1 estimate and 2 recorded payments, so every
-> screen has real data on first launch. No further sign-up, OTP or verification step is
+> Textiles & Traders", a Delhi cloth wholesaler — containing 8 clients across six
+> states, 12 stock items in four categories, 10 invoices (paid, part-paid, overdue and
+> draft), 4 recorded payments, 5 expenses and 2 estimates, so every screen has real
+> data on first launch. Clients in Delhi are billed CGST+SGST and clients elsewhere
+> IGST, so the GST report shows both. No further sign-up, OTP or verification step is
 > needed.
 >
 > **Every feature, and how to reach it**
