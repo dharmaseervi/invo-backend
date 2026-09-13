@@ -24,7 +24,10 @@ Sections 2 and 3 are for you, not for Apple.
 
 > **What this app is**
 >
-> Invo Billing is GST billing and inventory software for small retailers and traders in India. It creates invoices that comply with Indian GST rules, tracks stock, and produces the summaries needed to file a GSTR-1 return. It is bookkeeping software, in the same category as Zoho Invoice, Vyapar or QuickBooks.
+> The App Store listing is "Invobill"; the app itself displays "Invo Billing", which is
+> also our website, invobilling.com. Both refer to this same app.
+>
+> Invobill is GST billing and inventory software for small retailers and traders in India. It creates invoices that comply with Indian GST rules, tracks stock, and produces the summaries needed to file a GSTR-1 return. It is bookkeeping software, in the same category as Zoho Invoice, Vyapar or QuickBooks.
 >
 > **It does not handle, hold, transfer or process money.** There is no payment gateway, card entry, wallet, bank connection or in-app purchase. Where the app says "payment", the user is recording cash or a bank transfer that already happened outside the app, exactly as they would in a paper ledger.
 >
