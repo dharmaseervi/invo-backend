@@ -1,5 +1,12 @@
 # App Store review notes
 
+> **This now ships as an update to the existing `ebillz` record**
+> (Apple ID 6740260986, bundle `com.dharmaseervi.ebillz`), not as a new app and not to
+> the suspended Invo Billing record. That record already passed review from this
+> individual account under Business + Finance, which is why 3.2.1(viii) does not arise
+> for it. Store copy and screenshots live in `~/Desktop/ebillz-appstore/`.
+
+
 Paste section 1 into **App Store Connect → your build → App Review Information →
 Notes for Review**. It is written to satisfy Guideline 2.3.1, which requires features
 to be "described with specificity" and warns that "generic descriptions will be
@@ -26,13 +33,14 @@ Sections 2 and 3 are for you, not for Apple.
 >
 > **Demo account**
 >
-> Email: appreview@invobilling.com
-> Password: [FILL IN]
+> Email: dharmaseervijb18239+demo@gmail.com
+> Password: DemoScreens#2026
 >
 > The account is email-verified and pre-loaded with a sample business — "Sharma
-> Hardware & Paints" — containing 4 clients, 8 stock items, 6 invoices, 1 estimate,
-> 3 recorded payments and 4 expenses, so every screen has real data on first launch.
-> No further sign-up, OTP or verification step is needed.
+> Textiles & Traders" — containing 3 clients, 3 stock items, 4 invoices (one paid, one
+> partly paid, one overdue, one draft), 1 estimate and 2 recorded payments, so every
+> screen has real data on first launch. No further sign-up, OTP or verification step is
+> needed.
 >
 > **Every feature, and how to reach it**
 >
@@ -97,7 +105,7 @@ Sections 2 and 3 are for you, not for Apple.
 - [ ] **The demo password above is filled in, and you have signed in with it yourself**,
       on a device, today. A demo account that does not work is the single commonest
       cause of a 2.3.1 rejection.
-- [ ] **Primary category is Business, not Finance.** Zoho Invoice, Vyapar, myBillBook
+- [ ] **Primary category is Business, and Finance is removed as secondary.** Zoho Invoice, Vyapar, myBillBook
       and QuickBooks are all listed under Business. Finance invites review against the
       financial-services rules, which is how 3.2.1(viii) came up.
 - [ ] **Support URL and Privacy Policy URL** both resolve and describe this app.

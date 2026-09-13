@@ -11,6 +11,20 @@
 
 set -euo pipefail
 
+# Dates are generated relative to the day the script runs. They used to be hard-coded
+# to August/September 2026, which meant that a month later the dashboard's "Week" view
+# — the first thing anyone sees, reviewer included — showed a total revenue of ₹0.00
+# and "No sales recorded in the last 7 days". Demo data has to stay recent to keep
+# looking like a working business.
+d() { # d <days-ago> -> YYYY-MM-DD
+  if date -v -1d +%Y-%m-%d >/dev/null 2>&1; then date -v -"$1"d +%Y-%m-%d   # BSD/macOS
+  else date -d "$1 days ago" +%Y-%m-%d; fi                                  # GNU
+}
+dplus() { # dplus <days-ahead> -> YYYY-MM-DD
+  if date -v +1d +%Y-%m-%d >/dev/null 2>&1; then date -v +"$1"d +%Y-%m-%d
+  else date -d "$1 days" +%Y-%m-%d; fi
+}
+
 BASE="https://invobilling.com/api/v1"
 EMAIL="dharmaseervijb18239+demo@gmail.com"
 PASSWORD="DemoScreens#2026"
@@ -119,22 +133,22 @@ create_invoice() {
 }
 
 # Invoice 1: will be issued + fully paid
-INV1_RESP=$(create_invoice "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_1,\"invoice_date\":\"2026-08-20\",\"due_date\":\"2026-09-04\",\"discount\":0,\"items\":[{\"item_id\":$ITEM_1,\"qty\":20,\"rate\":180,\"discount\":0,\"tax_rate\":5},{\"item_id\":$ITEM_3,\"qty\":10,\"rate\":550,\"discount\":0,\"tax_rate\":5}]}")
+INV1_RESP=$(create_invoice "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_1,\"invoice_date\":\"$(d 3)\",\"due_date\":\"$(dplus 12)\",\"discount\":0,\"items\":[{\"item_id\":$ITEM_1,\"qty\":20,\"rate\":180,\"discount\":0,\"tax_rate\":5},{\"item_id\":$ITEM_3,\"qty\":10,\"rate\":550,\"discount\":0,\"tax_rate\":5}]}")
 echo "$INV1_RESP"
 INV1_ID=$(echo "$INV1_RESP" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
 
 # Invoice 2: will be issued + partially paid
-INV2_RESP=$(create_invoice "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_2,\"invoice_date\":\"2026-08-28\",\"due_date\":\"2026-09-12\",\"discount\":200,\"items\":[{\"item_id\":$ITEM_2,\"qty\":3,\"rate\":3500,\"discount\":0,\"tax_rate\":12}]}")
+INV2_RESP=$(create_invoice "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_2,\"invoice_date\":\"$(d 5)\",\"due_date\":\"$(dplus 10)\",\"discount\":200,\"items\":[{\"item_id\":$ITEM_2,\"qty\":3,\"rate\":3500,\"discount\":0,\"tax_rate\":12}]}")
 echo "$INV2_RESP"
 INV2_ID=$(echo "$INV2_RESP" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
 
 # Invoice 3: will be issued, left unpaid + overdue (due date in the past)
-INV3_RESP=$(create_invoice "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_3,\"invoice_date\":\"2026-08-01\",\"due_date\":\"2026-08-15\",\"discount\":0,\"items\":[{\"item_id\":$ITEM_1,\"qty\":50,\"rate\":180,\"discount\":0,\"tax_rate\":5}]}")
+INV3_RESP=$(create_invoice "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_3,\"invoice_date\":\"$(d 40)\",\"due_date\":\"$(d 12)\",\"discount\":0,\"items\":[{\"item_id\":$ITEM_1,\"qty\":50,\"rate\":180,\"discount\":0,\"tax_rate\":5}]}")
 echo "$INV3_RESP"
 INV3_ID=$(echo "$INV3_RESP" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
 
 # Invoice 4: left as draft (shows the draft state in the list)
-create_invoice "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_1,\"invoice_date\":\"2026-09-05\",\"due_date\":\"2026-09-20\",\"discount\":0,\"items\":[{\"item_id\":$ITEM_3,\"qty\":5,\"rate\":550,\"discount\":0,\"tax_rate\":5}]}"
+create_invoice "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_1,\"invoice_date\":\"$(d 0)\",\"due_date\":\"$(dplus 15)\",\"discount\":0,\"items\":[{\"item_id\":$ITEM_3,\"qty\":5,\"rate\":550,\"discount\":0,\"tax_rate\":5}]}"
 echo ""
 
 echo ""
@@ -157,7 +171,7 @@ echo ""
 
 echo ""
 echo "Creating an estimate ..."
-auth -X POST "$BASE/estimates" -d "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_3,\"estimate_date\":\"2026-09-05\",\"expiry_date\":\"2026-09-25\",\"discount\":0,\"items\":[{\"item_id\":$ITEM_2,\"qty\":2,\"rate\":3500,\"discount\":0,\"tax_rate\":12}]}"
+auth -X POST "$BASE/estimates" -d "{\"company_id\":$COMPANY_ID,\"client_id\":$CLIENT_3,\"estimate_date\":\"$(d 2)\",\"expiry_date\":\"$(dplus 18)\",\"discount\":0,\"items\":[{\"item_id\":$ITEM_2,\"qty\":2,\"rate\":3500,\"discount\":0,\"tax_rate\":12}]}"
 echo ""
 
 echo ""
