@@ -1,10 +1,13 @@
 # App Store review notes
 
-> **This now ships as an update to the existing `ebillz` record**
-> (Apple ID 6740260986, bundle `com.dharmaseervi.ebillz`), not as a new app and not to
-> the suspended Invo Billing record. That record already passed review from this
-> individual account under Business + Finance, which is why 3.2.1(viii) does not arise
-> for it. Store copy and screenshots live in `~/Desktop/ebillz-appstore/`.
+> **This ships as version 1.1.0 of the existing `ebillz` record**
+> (Apple ID 6740260986, bundle `com.dharmaseervi.ebillz`), renamed to **Invo Billing**
+> on this version — not as a new app, and not to the suspended Invo Billing record.
+>
+> The ebillz record was approved from this individual account under Business and
+> Finance, which is why 3.2.1(viii) does not arise for it. The suspended Invo Billing
+> record is deleted first, which frees the name and clears the 5.6 suspension from the
+> account. Store copy and screenshots live in `~/Desktop/ebillz-appstore/`.
 
 
 Paste section 1 into **App Store Connect → your build → App Review Information →
