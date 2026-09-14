@@ -170,7 +170,24 @@ func main() {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "database": "unreachable"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "database": "ok"})
+		// APNs environment is reported because getting it wrong fails silently: an
+		// App Store build carries production tokens, and sending those to the sandbox
+		// host is simply dropped — nothing errors, notifications just never arrive.
+		// Without this the only way to tell was reading the deploy log.
+		apns := "not configured"
+		if cfg.APNs.KeyID != "" && cfg.APNs.TeamID != "" && cfg.APNs.BundleID != "" && cfg.APNs.KeyBase64 != "" {
+			if cfg.APNs.Production {
+				apns = "production"
+			} else {
+				apns = "sandbox"
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status":     "ok",
+			"database":   "ok",
+			"apns":       apns,
+			"apns_topic": cfg.APNs.BundleID,
+		})
 	})
 	r.Use(func(c *gin.Context) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBytes)

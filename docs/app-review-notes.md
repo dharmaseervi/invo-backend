@@ -55,9 +55,9 @@ Sections 2 and 3 are for you, not for Apple.
 >
 > **Permissions, and why**
 >
-> Camera - scanning a product barcode; optional, items can be typed. Photo Library - reading a barcode from a saved photo; optional. Local Network - finding a Brother label printer; used only on the label screen. Face ID - the optional app lock; off by default. Notifications - overdue reminders; only requested if turned on in More.
+> Camera - scanning a product barcode; optional, items can be typed. Photo Library - reading a barcode from a saved photo; optional. Local Network and Bluetooth - finding a Brother label printer; used only on the label screen. Face ID - the optional app lock; off by default. Notifications - overdue reminders; only requested if turned on in More.
 >
-> **There are no hidden, dormant or undocumented features.** The app contains no web views and loads no remote code or remote configuration. Development-only helpers are excluded from release builds at compile time and are not present in this binary.
+> **There are no hidden, dormant or undocumented features.** The app presents no web views of its own and loads no remote code or remote configuration. Development-only helpers are excluded from release builds at compile time and are not present in this binary.
 >
 > A web version of the same account is available at https://invobilling.com/app - the same demo credentials work there if that is easier to review.
 
