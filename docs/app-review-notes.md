@@ -49,7 +49,7 @@ Sections 2 and 3 are for you, not for Apple.
 >
 > 3. Clients - name, phone, email, address, state and GSTIN. Tap a client for their invoices, outstanding balance and ledger.
 >
-> 4. Items - SKU, HSN code, unit, cost price, selling price, GST rate, stock quantity and low-stock threshold. Tap an item to record stock received and see its movement history. Items can be found by scanning a barcode with the camera (permission requested on first use). Items can also be printed as shelf labels on a Brother QL-series printer over Wi-Fi or Bluetooth; this needs Local Network permission and the physical printer. Without that hardware the printer search finds no devices. That is expected, not a hidden feature.
+> 4. Items - SKU, HSN code, unit, cost price, selling price, GST rate, stock quantity and low-stock threshold. Tap an item to record stock received and see its movement history. Items can be found by scanning a barcode with the camera (permission requested on first use). Items can also be printed as shelf labels on a Brother QL-series printer over Wi-Fi or Bluetooth; this needs Local Network permission and the physical printer. Without that hardware the printer search finds no devices. That is expected, not a hidden feature. Brother has added this app to its MFi Product Plan; PPID: 217291-0010.
 >
 > 5. More - Estimates (quotations, convertible to invoices); Credit notes (returns stock and reduces the GST owed); Payments (applied to that client's oldest unpaid invoices); Expenses; Ledger (running balance per client); Reports (stock on hand, receivables ageing, and GSTR-1 with CSV export); Company settings (name, GSTIN, address and bank details, printed on the invoice PDF); Invoice template (three PDF layouts); Biometric lock (optional, off by default); Account (sign out, or delete the account and all its data).
 >
@@ -59,7 +59,7 @@ Sections 2 and 3 are for you, not for Apple.
 >
 > **There are no hidden, dormant or undocumented features.** The app presents no web views of its own and loads no remote code or remote configuration. Development-only helpers are excluded from release builds at compile time and are not present in this binary.
 >
-> A web version of the same account is available at https://invobilling.com/app - the same demo credentials work there if that is easier to review.
+> The same demo account also works on the web at https://invobilling.com/app.
 
 ---
 
