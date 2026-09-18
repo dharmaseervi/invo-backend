@@ -89,7 +89,7 @@ export function GetTheApp() {
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium text-[var(--foreground)]">Invo Billing for iPhone</p>
         <p className="truncate text-xs text-[var(--muted-foreground)]">
-          Scan barcodes, print labels and bill offline
+          Scan barcodes and print item labels from your phone
         </p>
       </div>
 
