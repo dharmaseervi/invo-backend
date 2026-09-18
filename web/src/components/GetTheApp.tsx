@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 
 /** App Store id for Invo Billing, from App Store Connect → App Information. */
 const APP_STORE_ID = "6811639667";
-const APP_STORE_URL = `https://apps.apple.com/app/id${APP_STORE_ID}`;
+// The storefront code is required, not optional. Invobill is published in India
+// only, and the country-less /app/id... form 404s for an app that is not available
+// worldwide — verified: /app/id6811639667 returns 404, /in/app/id6811639667 returns
+// 200. Safari's Smart App Banner resolves the id against the viewer's own storefront
+// and needs no path, which is why only this fallback link was affected.
+const APP_STORE_URL = `https://apps.apple.com/in/app/id${APP_STORE_ID}`;
 const DISMISSED_KEY = "invo_app_banner_dismissed";
 
 /**
