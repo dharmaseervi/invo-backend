@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -57,6 +58,11 @@ func (h *PaymentHandler) RecordPayment(c *gin.Context) {
 
 	err = h.service.RecordPaymentTx(tx, companyID, req.ClientID, req)
 	if err != nil {
+		var input services.PaymentInputError
+		if errors.As(err, &input) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": input.Msg})
+			return
+		}
 		log.Println("failed to record payment:", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to record payment"})
 		return

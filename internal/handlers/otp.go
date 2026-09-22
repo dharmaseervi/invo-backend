@@ -43,17 +43,22 @@ func generateOTP() (string, error) {
 // POST /api/v1/send-otp
 func (h *OTPHandler) SendOTP(c *gin.Context) {
 	var req struct {
-		Email string `json:"email" binding:"required,email"`
+		Email string `json:"email" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Valid email required"})
+		return
+	}
+	req.Email = normalizeEmail(req.Email)
+	if !validEmail(req.Email) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Enter a valid email address"})
 		return
 	}
 
 	// Check user exists
 	var userExists bool
 	h.db.DB.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = $1)`,
 		req.Email,
 	).Scan(&userExists)
 
@@ -108,11 +113,16 @@ func (h *OTPHandler) SendOTP(c *gin.Context) {
 // POST /api/v1/verify-otp
 func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 	var req struct {
-		Email string `json:"email" binding:"required,email"`
+		Email string `json:"email" binding:"required"`
 		Code  string `json:"code" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Email and OTP required"})
+		return
+	}
+	req.Email = normalizeEmail(req.Email)
+	if !validEmail(req.Email) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Enter a valid email address"})
 		return
 	}
 
@@ -130,7 +140,7 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 	var email string
 	var isVerified bool
 	err = h.db.DB.QueryRow(
-		`SELECT id, email, COALESCE(is_verified, false) FROM users WHERE email = $1`,
+		`SELECT id, email, COALESCE(is_verified, false) FROM users WHERE lower(email) = $1`,
 		req.Email,
 	).Scan(&userID, &email, &isVerified)
 	if err != nil {

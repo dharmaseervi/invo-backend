@@ -17,19 +17,19 @@ type User struct {
 
 // UserLogin represents login request data
 type UserLogin struct {
-	Email    string `json:"email" binding:"required,email"`
+	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required,min=6"`
 }
 
 // UserRegister represents registration request data
 type UserRegister struct {
-	Email    string `json:"email" binding:"required,email"`
+	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required,min=6"`
 }
 
 // Validate checks if email format is valid
 func (u *UserRegister) Validate() error {
-	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
+	emailRegex := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$`)
 	if !emailRegex.MatchString(u.Email) {
 		return errors.New("invalid email format")
 	}

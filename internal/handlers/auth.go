@@ -39,6 +39,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input format"})
 		return
 	}
+	user.Email = normalizeEmail(user.Email)
 
 	if err := user.Validate(); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -48,7 +49,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	// Check if user already exists
 	var exists bool
 	err := h.db.DB.QueryRow(
-		"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)",
+		"SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = $1)",
 		user.Email,
 	).Scan(&exists)
 	if err != nil {
@@ -138,13 +139,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid login data"})
 		return
 	}
+	login.Email = normalizeEmail(login.Email)
 
 	// Step 1 — Get user from database FIRST
 	var user models.User
 	err := h.db.DB.QueryRow(`
         SELECT id, email, password_hash 
         FROM users 
-        WHERE email = $1`,
+        WHERE lower(email) = $1`,
 		login.Email,
 	).Scan(&user.ID, &user.Email, &user.PasswordHash)
 
@@ -168,7 +170,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// Step 4 — Check if email is verified (AFTER confirming user exists)
 	var isVerified bool
 	h.db.DB.QueryRow(
-		`SELECT is_verified FROM users WHERE email = $1`, login.Email,
+		`SELECT is_verified FROM users WHERE lower(email) = $1`, login.Email,
 	).Scan(&isVerified)
 
 	if !isVerified {
@@ -210,11 +212,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 // POST /api/v1/verify-email
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	var req struct {
-		Email string `json:"email" binding:"required,email"`
+		Email string `json:"email" binding:"required"`
 		Code  string `json:"code" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Email and code required"})
+		return
+	}
+	req.Email = normalizeEmail(req.Email)
+	if !validEmail(req.Email) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Enter a valid email address"})
 		return
 	}
 
@@ -227,7 +234,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 
 	// Mark user as verified
 	_, err = h.db.DB.Exec(
-		`UPDATE users SET is_verified = TRUE WHERE email = $1`,
+		`UPDATE users SET is_verified = TRUE WHERE lower(email) = $1`,
 		req.Email,
 	)
 	if err != nil {
@@ -238,7 +245,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	// Get user details
 	var userID int
 	h.db.DB.QueryRow(
-		`SELECT id FROM users WHERE email = $1`, req.Email,
+		`SELECT id FROM users WHERE lower(email) = $1`, req.Email,
 	).Scan(&userID)
 
 	// Generate JWT — now verified ✅
@@ -271,17 +278,22 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 // POST /api/v1/resend-verification
 func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	var req struct {
-		Email string `json:"email" binding:"required,email"`
+		Email string `json:"email" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Email required"})
+		return
+	}
+	req.Email = normalizeEmail(req.Email)
+	if !validEmail(req.Email) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Enter a valid email address"})
 		return
 	}
 
 	// Check user exists and not verified
 	var isVerified bool
 	err := h.db.DB.QueryRow(
-		`SELECT is_verified FROM users WHERE email = $1`, req.Email,
+		`SELECT is_verified FROM users WHERE lower(email) = $1`, req.Email,
 	).Scan(&isVerified)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
@@ -439,17 +451,22 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 // POST /api/v1/forgot-password
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req struct {
-		Email string `json:"email" binding:"required,email"`
+		Email string `json:"email" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Valid email required"})
+		return
+	}
+	req.Email = normalizeEmail(req.Email)
+	if !validEmail(req.Email) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Enter a valid email address"})
 		return
 	}
 
 	// Check user exists
 	var exists bool
 	h.db.DB.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)`, req.Email,
+		`SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = $1)`, req.Email,
 	).Scan(&exists)
 
 	// Always return success (don't reveal if email exists)
@@ -503,12 +520,17 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 // POST /api/v1/reset-password
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req struct {
-		Email       string `json:"email" binding:"required,email"`
+		Email       string `json:"email" binding:"required"`
 		Code        string `json:"code" binding:"required"`
 		NewPassword string `json:"new_password" binding:"required,min=6"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	req.Email = normalizeEmail(req.Email)
+	if !validEmail(req.Email) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Enter a valid email address"})
 		return
 	}
 
@@ -531,7 +553,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	// how someone recovers a compromised account, so it has to boot any session the
 	// attacker still holds rather than leaving them signed in.
 	_, err = h.db.DB.Exec(
-		`UPDATE users SET password_hash = $1, tokens_valid_from = NOW() WHERE email = $2`,
+		`UPDATE users SET password_hash = $1, tokens_valid_from = NOW() WHERE lower(email) = $2`,
 		hashedPassword, req.Email,
 	)
 	if err != nil {
@@ -543,7 +565,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 
 	// Generate JWT — log them in automatically
 	var userID int
-	h.db.DB.QueryRow(`SELECT id FROM users WHERE email = $1`, req.Email).Scan(&userID)
+	h.db.DB.QueryRow(`SELECT id FROM users WHERE lower(email) = $1`, req.Email).Scan(&userID)
 
 	now := time.Now()
 	claims := jwt.MapClaims{

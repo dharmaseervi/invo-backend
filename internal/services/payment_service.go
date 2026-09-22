@@ -2,7 +2,6 @@ package services
 
 import (
 	"database/sql"
-	"errors"
 	"invo-server/internal/models"
 	"invo-server/internal/money"
 )
@@ -48,7 +47,7 @@ func (s *PaymentService) RecordPaymentTx(
 	}
 
 	if !allocated.Equal(money.FromFloat(req.Amount)) {
-		return errors.New("allocation total does not match payment amount")
+		return PaymentInputError{"The amounts applied to invoices don't add up to the payment."}
 	}
 
 	// 3️⃣ Insert payment
@@ -95,20 +94,20 @@ func (s *PaymentService) RecordPaymentTx(
 		`, alloc.InvoiceID, companyID, clientID).Scan(&remaining, &status)
 
 		if err == sql.ErrNoRows {
-			return errors.New("invoice does not belong to this client")
+			return PaymentInputError{"One of those invoices isn't this client's."}
 		}
 		if err != nil {
 			return err
 		}
 
 		if !isPayableStatus(status) {
-			return errors.New("invoice is not open for payment")
+			return PaymentInputError{"Payments can only go against an issued or part-paid invoice."}
 		}
 
 		// Decimal comparison: in float64 an allocation that exactly settles an invoice
 		// can compare as greater than the balance and be rejected outright.
 		if money.FromFloat(alloc.Amount).GreaterThan(money.FromFloat(remaining)) {
-			return errors.New("allocation exceeds invoice balance")
+			return PaymentInputError{"That's more than the invoice still owes."}
 		}
 
 		// save allocation
@@ -208,8 +207,15 @@ func (s *PaymentService) autoAllocateFIFO(
 	}
 
 	if remaining.GreaterThan(money.Zero()) {
-		return nil, errors.New("payment exceeds outstanding balance")
+		return nil, PaymentInputError{"That's more than the client owes."}
 	}
 
 	return allocations, nil
 }
+
+// PaymentInputError is a refusal the person can act on, shown to them as is. Before,
+// every refusal reached the app as "Failed to record payment", which says nothing about
+// what to change.
+type PaymentInputError struct{ Msg string }
+
+func (e PaymentInputError) Error() string { return e.Msg }

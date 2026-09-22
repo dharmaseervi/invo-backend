@@ -562,6 +562,33 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 		}
 	}
 
+	// 8️⃣b Refresh the address snapshot, as creation takes it.
+	//
+	// The invoice prints the billing address copied into invoice_addresses, and the PDF
+	// decides CGST+SGST against IGST from that copy's state. Changing the client on a
+	// draft moved client_id but kept the old copy, so the PDF named the previous
+	// customer, at their address, with their GST split. Retaken on every edit: a draft
+	// should carry the client's details as they are when it is saved.
+	billingAddr, err := fetchClientAddress(tx, req.ClientID, "billing")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Client billing address is required"})
+		return
+	}
+	if _, err = tx.Exec(`DELETE FROM invoice_addresses WHERE invoice_id = $1`, invoiceID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invoice address"})
+		return
+	}
+	if err = insertInvoiceAddress(tx, int(invoiceID), "billing", *billingAddr); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invoice address"})
+		return
+	}
+	if shippingAddr, _ := fetchClientAddress(tx, req.ClientID, "shipping"); shippingAddr != nil {
+		if err = insertInvoiceAddress(tx, int(invoiceID), "shipping", *shippingAddr); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invoice address"})
+			return
+		}
+	}
+
 	// 9️⃣ Commit
 	if err = tx.Commit(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
@@ -609,8 +636,11 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			i.remaining_amount,
 			i.status,
 			i.created_at,
-			GREATEST(0, CURRENT_DATE - i.due_date) AS days_overdue,
-			CURRENT_DATE > i.due_date AND i.status != 'paid' AS is_overdue,
+			-- Overdue means owed and late: issued or part-paid only, the rule the
+			-- overdue push check already uses. "Not paid" also caught drafts, which
+			-- were never sent, and cancelled invoices, which are void.
+			CASE WHEN i.status IN ('issued', 'partial') THEN GREATEST(0, CURRENT_DATE - i.due_date) ELSE 0 END AS days_overdue,
+			(CURRENT_DATE > i.due_date AND i.status IN ('issued', 'partial')) AS is_overdue,
 			COALESCE(c.name, '')
 		FROM invoices i
 		JOIN clients c ON c.id = i.client_id
@@ -753,8 +783,11 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 			i.status,
 			i.created_at,
 			c.name,
-			GREATEST(0, CURRENT_DATE - i.due_date) AS days_overdue,
-			CURRENT_DATE > i.due_date AND i.status != 'paid' AS is_overdue
+			-- Overdue means owed and late: issued or part-paid only, the rule the
+			-- overdue push check already uses. "Not paid" also caught drafts, which
+			-- were never sent, and cancelled invoices, which are void.
+			CASE WHEN i.status IN ('issued', 'partial') THEN GREATEST(0, CURRENT_DATE - i.due_date) ELSE 0 END AS days_overdue,
+			(CURRENT_DATE > i.due_date AND i.status IN ('issued', 'partial')) AS is_overdue
 		FROM invoices i
 		JOIN clients c ON c.id = i.client_id
 		WHERE i.id = $1 AND i.user_id = $2
@@ -955,7 +988,11 @@ func (h *InvoiceHandler) GetUnpaidInvoices(c *gin.Context) {
 		WHERE company_id = $1
 		  AND client_id = $2
 		  AND remaining_amount > 0
-		ORDER BY invoice_date ASC
+		  -- Only invoices a payment can be applied to. A draft has a balance but isn't
+		  -- owed yet, and RecordPaymentTx refuses to allocate to one — so a client
+		  -- payment built from this list failed whole whenever the client had a draft.
+		  AND status IN ('issued', 'partial')
+		ORDER BY invoice_date ASC, id ASC
 	`, companyID, clientID)
 
 	if err != nil {

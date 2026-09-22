@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"invo-server/internal/models"
 	"invo-server/internal/services"
 	"log"
@@ -54,6 +55,11 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.service.CreateTx(tx, req.CompanyID, req); err != nil {
+		var input services.CreditNoteInputError
+		if errors.As(err, &input) {
+			c.JSON(400, gin.H{"error": input.Msg})
+			return
+		}
 		log.Println("failed to create credit note:", err)
 		c.JSON(400, gin.H{"error": "Failed to create credit note"})
 		return

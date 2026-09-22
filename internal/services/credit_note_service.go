@@ -2,7 +2,6 @@ package services
 
 import (
 	"database/sql"
-	"errors"
 	"invo-server/internal/models"
 )
 
@@ -25,14 +24,45 @@ func (s *CreditNoteService) CreateTx(
 	switch req.Type {
 	case "return":
 		if len(req.Items) == 0 {
-			return errors.New("items required for return credit note")
+			return CreditNoteInputError{"A return needs at least one item."}
 		}
 	case "adjustment", "discount":
 		if req.Amount <= 0 {
-			return errors.New("amount required for credit note")
+			return CreditNoteInputError{"Enter the amount to credit."}
 		}
 	default:
-		return errors.New("invalid credit note type")
+		return CreditNoteInputError{"The credit note type must be return, adjustment or discount."}
+	}
+
+	// 1️⃣b Who and what it is against. The handler only checks the company, so a client
+	// or invoice id from another business was accepted as long as the company was yours.
+	// And an invoice must have been issued: a credit note against a draft cut the
+	// draft's balance and could mark it paid before it was ever sent.
+	var clientOK bool
+	if err := tx.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM clients WHERE id = $1 AND company_id = $2)`,
+		req.ClientID, companyID,
+	).Scan(&clientOK); err != nil {
+		return err
+	}
+	if !clientOK {
+		return CreditNoteInputError{"That client doesn't belong to this company."}
+	}
+	if req.InvoiceID != nil {
+		var status string
+		err := tx.QueryRow(
+			`SELECT status FROM invoices WHERE id = $1 AND company_id = $2 AND client_id = $3`,
+			*req.InvoiceID, companyID, req.ClientID,
+		).Scan(&status)
+		if err == sql.ErrNoRows {
+			return CreditNoteInputError{"That invoice isn't one of this client's."}
+		}
+		if err != nil {
+			return err
+		}
+		if status != "issued" && status != "partial" && status != "paid" {
+			return CreditNoteInputError{"A credit note can only be raised against an issued invoice, not a " + status + " one."}
+		}
 	}
 
 	// 2️⃣ Calculate totals
@@ -326,3 +356,9 @@ func (s *CreditNoteService) GetByID(
 
 	return &cn, nil
 }
+
+// CreditNoteInputError is a refusal the person can act on; its message is shown as is.
+// Anything else stays a generic failure, as before.
+type CreditNoteInputError struct{ Msg string }
+
+func (e CreditNoteInputError) Error() string { return e.Msg }
