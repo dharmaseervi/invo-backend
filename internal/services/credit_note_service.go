@@ -2,6 +2,8 @@ package services
 
 import (
 	"database/sql"
+	"strconv"
+
 	"invo-server/internal/models"
 )
 
@@ -94,6 +96,50 @@ func (s *CreditNoteService) CreateTx(
 			}
 			if !itemOK {
 				return CreditNoteInputError{"One of the returned items doesn't belong to this company."}
+			}
+		}
+	}
+
+	// 1️⃣d A return against an invoice cannot exceed what that invoice sold, counting
+	// what earlier credit notes already took back.
+	//
+	// Without this a return of 100 against an invoice for 2 was accepted: 100 went into
+	// stock that was never sold, the customer was credited for them, and repeating the
+	// same return credited it again.
+	if req.Type == "return" && req.InvoiceID != nil {
+		// Several lines can name the same item, so they are summed before comparing —
+		// two lines of 3 against 4 sold is an over-return even though neither line is.
+		wanted := map[int64]float64{}
+		for _, it := range req.Items {
+			wanted[it.ItemID] += it.Qty
+		}
+		for itemID, qty := range wanted {
+			var sold, returned float64
+			if err := tx.QueryRow(
+				`SELECT COALESCE(SUM(qty), 0) FROM invoice_items WHERE invoice_id = $1 AND item_id = $2`,
+				*req.InvoiceID, itemID,
+			).Scan(&sold); err != nil {
+				return err
+			}
+			if sold == 0 {
+				return CreditNoteInputError{"One of the returned items isn't on that invoice."}
+			}
+			if err := tx.QueryRow(`
+				SELECT COALESCE(SUM(cni.qty), 0)
+				FROM credit_note_items cni
+				JOIN credit_notes cn ON cn.id = cni.credit_note_id
+				WHERE cn.invoice_id = $1 AND cni.item_id = $2 AND cn.status <> 'cancelled'
+			`, *req.InvoiceID, itemID).Scan(&returned); err != nil {
+				return err
+			}
+			if qty+returned > sold {
+				left := sold - returned
+				if left <= 0 {
+					return CreditNoteInputError{"Everything that invoice sold of one of these items has already been returned."}
+				}
+				return CreditNoteInputError{
+					"That invoice only has " + strconv.FormatFloat(left, 'f', -1, 64) + " of one of these items left to return.",
+				}
 			}
 		}
 	}

@@ -24,17 +24,28 @@ func (s *LedgerService) getLastBalanceTx(
 
 	var balance float64
 
-	// FOR UPDATE serialises concurrent entries for the same client. Without the lock,
-	// two payments recorded at once both read the same prior balance and both write
-	// "balance - amount", so one of them vanishes from the running total even though
-	// both rows exist.
+	// Lock the client row, not the newest ledger row.
+	//
+	// Entries for one client have to be serialised: two payments recorded at once both
+	// read the same prior balance and both write "balance - amount", so one of them
+	// vanishes from the running total even though both rows exist. Locking the newest
+	// entry looked like it did that, but it locks nothing when the client has no entries
+	// yet — a first invoice and a first payment arriving together — and concurrent
+	// writers each insert their own row anyway, so there is no shared row to contend on.
+	// The client row always exists and is the same row for every writer, so it
+	// serialises them all.
+	if _, err := tx.Exec(`
+		SELECT 1 FROM clients WHERE id = $1 AND company_id = $2 FOR UPDATE
+	`, clientID, companyID); err != nil {
+		return 0, err
+	}
+
 	err := tx.QueryRow(`
 		SELECT balance
 		FROM ledger_entries
 		WHERE company_id = $1 AND client_id = $2
 		ORDER BY id DESC
 		LIMIT 1
-		FOR UPDATE
 	`, companyID, clientID).Scan(&balance)
 
 	if err == sql.ErrNoRows {

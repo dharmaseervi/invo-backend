@@ -617,6 +617,23 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 		}
 	}()
 
+	// The status read above ran before this transaction, so two Convert taps could both
+	// see "not converted" and each create an invoice from one estimate — two invoices
+	// for the same order, both deducting stock. Lock the estimate and read the status
+	// again inside the transaction: the second request waits here, then sees
+	// 'converted'.
+	var lockedStatus string
+	if err := tx.QueryRow(`
+		SELECT status FROM estimates WHERE id = $1 AND user_id = $2 FOR UPDATE
+	`, estimateID, userID).Scan(&lockedStatus); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch estimate"})
+		return
+	}
+	if lockedStatus == "converted" {
+		c.JSON(http.StatusConflict, gin.H{"error": "Estimate already converted"})
+		return
+	}
+
 	invDate := time.Now()
 	fy := utils.FinancialYear(invDate)
 	var nextNumber int
@@ -682,12 +699,17 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 		}
 	}
 
-	_, err = tx.Exec(`
+	// One conversion per estimate, enforced in the write itself as well as by the lock.
+	convRes, err := tx.Exec(`
 		UPDATE estimates SET status = 'converted', converted_invoice_id = $1, updated_at = NOW()
-		WHERE id = $2
+		WHERE id = $2 AND status != 'converted'
 	`, invoiceID, estimateID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to mark estimate converted"})
+		return
+	}
+	if n, _ := convRes.RowsAffected(); n == 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "Estimate already converted"})
 		return
 	}
 

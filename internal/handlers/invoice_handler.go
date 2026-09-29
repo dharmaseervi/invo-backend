@@ -499,8 +499,14 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 		}
 	}()
 
-	// 7️⃣ Update invoice header
-	_, err = tx.Exec(`
+	// 7️⃣ Update invoice header.
+	//
+	// The draft check in step 1 ran before this transaction and on a different
+	// connection, so an Issue arriving in between would have been overwritten here:
+	// the invoice went back to a draft's figures with its stock already deducted and a
+	// ledger entry already written. Requiring 'draft' in the WHERE makes the edit and
+	// the check one atomic step, and 0 rows means it was issued first.
+	headerRes, err := tx.Exec(`
 		UPDATE invoices
 		SET
 			client_id = $1,
@@ -512,7 +518,7 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 			total = $7,
 			remaining_amount = $7,
 			updated_at = NOW()
-		WHERE id = $8
+		WHERE id = $8 AND status = 'draft'
 	`,
 		req.ClientID,
 		invDate,
@@ -526,6 +532,12 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invoice"})
+		return
+	}
+	if n, _ := headerRes.RowsAffected(); n == 0 {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "This invoice was issued while you were editing it, so the changes were not saved.",
+		})
 		return
 	}
 
@@ -1115,10 +1127,15 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 		number    string
 	)
 
+	// FOR UPDATE: two taps on Issue, or a tap and a retry, both read "draft" and both
+	// went on to issue the same invoice — deducting the stock twice and writing two
+	// ledger entries. The row is held for the rest of this transaction, so a second
+	// request waits here and then sees 'issued'.
 	err = tx.QueryRow(`
         SELECT status, total, client_id, company_id, invoice_number
         FROM invoices
         WHERE id = $1 AND user_id = $2
+        FOR UPDATE
     `, invoiceID, userID).Scan(
 		&status, &total, &clientID, &companyID, &number,
 	)
@@ -1176,15 +1193,21 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 		}
 	}
 
-	// 1️⃣ Update invoice
-	_, err = tx.Exec(`
+	// 1️⃣ Update invoice. Still requires the row to be a draft, so the transition stays
+	// atomic even if the lock above is lost in a later rewrite: no rows updated means
+	// somebody else issued it first, and this request must not deduct stock again.
+	res, err := tx.Exec(`
         UPDATE invoices
         SET status = 'issued',
             remaining_amount = total
-        WHERE id = $1
+        WHERE id = $1 AND status = 'draft'
     `, invoiceID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to update invoice"})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		c.JSON(400, gin.H{"error": "invoice already issued"})
 		return
 	}
 
@@ -1409,9 +1432,13 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 	var companyID, clientID int64
 	var number string
 	var total float64
+	// FOR UPDATE for the same reason as issuing: two cancels racing both read 'issued'
+	// and each restored the stock and wrote a reversing ledger entry, so the goods came
+	// back twice.
 	err = tx.QueryRow(`
 		SELECT status, company_id, client_id, invoice_number, total
 		FROM invoices WHERE id = $1 AND user_id = $2
+		FOR UPDATE
 	`, invoiceID, userID).Scan(&status, &companyID, &clientID, &number, &total)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Invoice not found"})
@@ -1465,12 +1492,18 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 		log.Println("failed to log stock movements for cancel:", err)
 	}
 
-	if _, err = tx.Exec(`
+	// Still requires the status this transaction read, so the change cannot apply twice.
+	cancelRes, err := tx.Exec(`
 		UPDATE invoices SET status = 'cancelled', remaining_amount = 0, updated_at = NOW()
-		WHERE id = $1
-	`, invoiceID); err != nil {
+		WHERE id = $1 AND status = $2
+	`, invoiceID, status)
+	if err != nil {
 		log.Println("failed to mark invoice cancelled:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel invoice"})
+		return
+	}
+	if n, _ := cancelRes.RowsAffected(); n == 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "This invoice was just changed. Open it again."})
 		return
 	}
 

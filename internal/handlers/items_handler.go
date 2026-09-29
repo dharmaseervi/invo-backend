@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"fmt"
 	database "invo-server/internal/db"
@@ -385,20 +386,35 @@ func (h *itemHandler) RestockItem(c *gin.Context) {
 		return
 	}
 
-	var previousQuantity, companyID int
-	err := h.db.DB.QueryRow(`
-		SELECT quantity, company_id FROM items WHERE id = $1 AND user_id = $2
-	`, itemID, userID).Scan(&previousQuantity, &companyID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Item not found"})
+	if request.Quantity <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Enter how many units came in — at least one."})
 		return
 	}
 
-	newQuantity := previousQuantity + request.Quantity
+	// Read-then-write lost stock: two deliveries entered at the same time both read the
+	// same quantity and each wrote its own replacement, so one delivery vanished. The
+	// database does the addition now, and RETURNING reports the quantity before and
+	// after this increment whatever else is happening at the same time.
+	//
+	// The movement record is written in the same transaction as the increment, so the
+	// audit trail cannot end up disagreeing with the stock.
+	tx, err := h.db.DB.Begin()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to restock item"})
+		return
+	}
+	defer tx.Rollback()
 
-	_, err = h.db.DB.Exec(`
-		UPDATE items SET quantity = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3
-	`, newQuantity, itemID, userID)
+	var previousQuantity, newQuantity, companyID int
+	err = tx.QueryRow(`
+		UPDATE items SET quantity = quantity + $1, updated_at = NOW()
+		WHERE id = $2 AND user_id = $3
+		RETURNING quantity - $1, quantity, company_id
+	`, request.Quantity, itemID, userID).Scan(&previousQuantity, &newQuantity, &companyID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Item not found"})
+		return
+	}
 	if err != nil {
 		log.Println("failed to restock item:", err)
 		c.JSON(500, gin.H{"error": "Failed to restock item"})
@@ -407,11 +423,19 @@ func (h *itemHandler) RestockItem(c *gin.Context) {
 
 	id, _ := strconv.Atoi(itemID)
 	if err := services.LogStockMovement(
-		h.db.DB, id, companyID, userID, "restock",
+		tx, id, companyID, userID, "restock",
 		request.Quantity, previousQuantity, newQuantity,
 		request.Reference, request.Note,
 	); err != nil {
 		log.Println("failed to log stock movement:", err)
+		c.JSON(500, gin.H{"error": "Failed to restock item"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Println("failed to commit restock:", err)
+		c.JSON(500, gin.H{"error": "Failed to restock item"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
