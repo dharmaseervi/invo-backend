@@ -65,6 +65,39 @@ func (s *CreditNoteService) CreateTx(
 		}
 	}
 
+	// 1️⃣c Every returned line must be this company's own item, with a sane quantity
+	// and rate.
+	//
+	// Nothing checked this before. The item ids were written to credit_note_items and
+	// step 6 then added the quantity to whatever row carried that id, so a signed-in
+	// user could name another business's item and change its stock — and reading the
+	// credit note back returned that item's name. Ownership is checked here, and the
+	// stock update in step 6 is scoped to the company as well, so neither the ids nor
+	// a later change to this code can reach another business's inventory.
+	if req.Type == "return" {
+		for _, it := range req.Items {
+			if it.Qty <= 0 {
+				return CreditNoteInputError{"A returned line needs a quantity of at least one."}
+			}
+			if it.Rate < 0 {
+				return CreditNoteInputError{"A returned line cannot have a negative rate."}
+			}
+			if it.TaxRate < 0 || it.TaxRate > 100 {
+				return CreditNoteInputError{"A returned line's GST rate must be between 0 and 100."}
+			}
+			var itemOK bool
+			if err := tx.QueryRow(
+				`SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND company_id = $2)`,
+				it.ItemID, companyID,
+			).Scan(&itemOK); err != nil {
+				return err
+			}
+			if !itemOK {
+				return CreditNoteInputError{"One of the returned items doesn't belong to this company."}
+			}
+		}
+	}
+
 	// 2️⃣ Calculate totals
 	var subtotal, tax, total float64
 
@@ -158,8 +191,8 @@ func (s *CreditNoteService) CreateTx(
 				SELECT item_id, SUM(qty) AS total_qty
 				FROM credit_note_items WHERE credit_note_id = $1 GROUP BY item_id
 			) agg
-			WHERE it.id = agg.item_id
-		`, cnID); err != nil {
+			WHERE it.id = agg.item_id AND it.company_id = $2
+		`, cnID, companyID); err != nil {
 			return err
 		}
 
@@ -172,6 +205,7 @@ func (s *CreditNoteService) CreateTx(
 				SELECT item_id, SUM(qty) AS total_qty
 				FROM credit_note_items WHERE credit_note_id = $1 GROUP BY item_id
 			) agg ON agg.item_id = it.id
+			WHERE it.company_id = $2
 		`, cnID, companyID, creditNumber); err != nil {
 			return err
 		}
