@@ -55,6 +55,8 @@ func (h *LedgerHandler) GetClientLedger(c *gin.Context) {
 		c.Request.Context(),
 		companyID,
 		clientID,
+		clampPageSize(mustAtoi(c.Query("limit")), 0),
+		mustAtoi(c.Query("offset")),
 	)
 
 	if err != nil {

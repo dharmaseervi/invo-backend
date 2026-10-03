@@ -107,7 +107,11 @@ func (h *CreditNoteHandler) GetAll(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.GetAll(companyID)
+	result, err := h.service.GetAll(
+		companyID,
+		clampPageSize(mustAtoi(c.Query("limit")), 0),
+		mustAtoi(c.Query("offset")),
+	)
 	if err != nil {
 		log.Println("failed to fetch credit notes:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch credit notes"})

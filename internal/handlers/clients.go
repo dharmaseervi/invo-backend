@@ -103,7 +103,22 @@ func (h *clientHandler) GetClients(c *gin.Context) {
 		query += " AND (name ILIKE $2 OR COALESCE(phone, '') ILIKE $2 OR COALESCE(email, '') ILIKE $2)"
 		args = append(args, "%"+search+"%")
 	}
-	query += " ORDER BY name"
+
+	// Paged, like invoices and items.
+	//
+	// This returned every client a company had, in one reply, every time a screen
+	// opened — fine at thirty, a large download and a long render at three thousand,
+	// and the database did that work whether or not anybody scrolled. A caller that
+	// sends no limit still gets the whole list, so the apps in the store keep working;
+	// the name and id ordering makes paging stable for one that does.
+	//
+	// id as a tiebreaker: two clients can share a name, and without it one of them
+	// could appear on two pages or on none.
+	query += " ORDER BY name, id"
+	if limit := clampPageSize(mustAtoi(c.Query("limit")), 0); limit > 0 {
+		query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
+		args = append(args, limit, mustAtoi(c.Query("offset")))
+	}
 
 	rows, err := h.db.DB.Query(query, args...)
 	if err != nil {

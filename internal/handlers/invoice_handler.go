@@ -621,6 +621,11 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 
 	companyIDStr := c.Query("company_id")
 	clientIDStr := c.Query("client_id")
+	search := strings.TrimSpace(c.Query("search"))
+	// One of: draft, issued, partial, paid, cancelled, overdue, owed. "overdue" and
+	// "owed" are not stored statuses but the questions people actually ask of a list —
+	// who is late, and who owes anything at all.
+	status := strings.ToLower(strings.TrimSpace(c.Query("status")))
 
 	limitStr := c.DefaultQuery("limit", "10")
 	offsetStr := c.DefaultQuery("offset", "0")
@@ -678,8 +683,28 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 		}
 	}
 
+	// Searching and filtering happen here, not in the client.
+	//
+	// The apps filtered the rows they happened to have loaded, so a search matched only
+	// the first page and the counts beside each filter described that page rather than
+	// the business. On an account with a few hundred invoices the answer was simply
+	// wrong, and it got worse the more invoices there were.
+	if search != "" {
+		query += ` AND (i.invoice_number ILIKE $` + strconv.Itoa(argPos) +
+			` OR c.name ILIKE $` + strconv.Itoa(argPos) + `)`
+		args = append(args, "%"+search+"%")
+		argPos++
+	}
+
+	if clause := invoiceStatusClause(status, "i"); clause != "" {
+		query += clause
+	}
+
+	// id as a tiebreaker: several invoices share a date, and without it the same row
+	// could appear on two pages or on none, because the order between equal dates is
+	// not fixed between queries.
 	query += `
-		ORDER BY i.invoice_date DESC
+		ORDER BY i.invoice_date DESC, i.id DESC
 		LIMIT $` + strconv.Itoa(argPos) +
 		` OFFSET $` + strconv.Itoa(argPos+1)
 

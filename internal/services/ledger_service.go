@@ -106,12 +106,20 @@ func (s *LedgerService) AddEntryTx(
 }
 
 // Fetch full ledger
+// GetClientLedger returns a customer's statement, oldest first, because a running
+// balance only makes sense read forwards.
+//
+// limit of 0 means the whole statement, which is what the apps in the store ask for. A
+// customer who has been buying for years has thousands of lines, and every one of them
+// was fetched, sent and rendered to show the last few — so a caller that pages takes
+// the most recent `limit` entries and still receives them oldest first.
 func (s *LedgerService) GetClientLedger(
 	ctx context.Context,
 	companyID, clientID int64,
+	limit, offset int,
 ) ([]models.LedgerEntry, error) {
 
-	rows, err := s.db.QueryContext(ctx, `
+	query := `
 		SELECT
     le.id,
     le.company_id,
@@ -127,8 +135,20 @@ func (s *LedgerService) GetClientLedger(
 FROM ledger_entries le
 JOIN clients c ON c.id = le.client_id
 WHERE le.company_id = $1 AND le.client_id = $2
-ORDER BY le.created_at ASC
-	`, companyID, clientID)
+	`
+	args := []interface{}{companyID, clientID}
+	if limit > 0 {
+		// The newest page, then turned back the right way round: paging walks backwards
+		// through the statement while each page still reads forwards.
+		query = `SELECT * FROM (` + query + `
+			ORDER BY le.created_at DESC, le.id DESC LIMIT $3 OFFSET $4
+		) page ORDER BY created_at ASC, id ASC`
+		args = append(args, limit, offset)
+	} else {
+		query += " ORDER BY le.created_at ASC, le.id ASC"
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 
 	if err != nil {
 		return nil, err

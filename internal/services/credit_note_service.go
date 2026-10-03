@@ -296,11 +296,16 @@ func (s *CreditNoteService) CreateTx(
 	)
 }
 
+// GetAll lists a company's credit notes, newest first.
+//
+// limit of 0 means the whole list, which is what the apps already in the store ask for;
+// a caller that pages gets a stable order, since credit_date alone is not unique.
 func (s *CreditNoteService) GetAll(
 	companyID int64,
+	limit, offset int,
 ) ([]models.CreditNoteListDTO, error) {
 
-	rows, err := s.db.Query(`
+	query := `
 		SELECT
 			cn.id,
 			cn.credit_number,
@@ -315,7 +320,14 @@ func (s *CreditNoteService) GetAll(
 		JOIN clients cl ON cl.id = cn.client_id
 		WHERE cn.company_id = $1
 		ORDER BY cn.credit_date DESC, cn.id DESC
-	`, companyID)
+	`
+	args := []interface{}{companyID}
+	if limit > 0 {
+		query += " LIMIT $2 OFFSET $3"
+		args = append(args, limit, offset)
+	}
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}

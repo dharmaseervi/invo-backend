@@ -98,13 +98,22 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
 		return
 	}
 
-	// Fetch expenses
-	rows, err := h.db.DB.Query(`
+	// Fetch expenses. Paged when the caller asks; the whole list otherwise, so the
+	// apps already in the store keep working. id breaks ties between expenses recorded
+	// on the same date, without which a row could land on two pages or on none.
+	query := `
         SELECT id, name, amount, description, date, created_at, updated_at
         FROM expensess
         WHERE company_id=$1
-        ORDER BY date DESC
-    `, companyID)
+        ORDER BY date DESC, id DESC
+    `
+	args := []interface{}{companyID}
+	if limit := clampPageSize(mustAtoi(c.Query("limit")), 0); limit > 0 {
+		query += " LIMIT $2 OFFSET $3"
+		args = append(args, limit, mustAtoi(c.Query("offset")))
+	}
+
+	rows, err := h.db.DB.Query(query, args...)
 
 	if err != nil {
 		log.Println("Query ERROR:", err)
