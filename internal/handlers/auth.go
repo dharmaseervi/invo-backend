@@ -401,6 +401,21 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 		return
 	}
 	userID := userIDVal.(int)
+
+	// Deleting everything is the most destructive thing this API does, and a valid
+	// bearer token was the only thing standing in front of it — so a token lifted from
+	// a phone was enough to wipe a business's books. Re-entering the password proves
+	// the person holding the token is the owner.
+	//
+	// Only enforced when the caller sends one, until both apps can: the iPhone app in
+	// the store today sends nothing, and refusing it there would break the deletion
+	// route that Apple and Google require. So a password that is sent must be right,
+	// and REQUIRE_REAUTH=true makes it compulsory for everyone once the iOS update that
+	// asks for it is out. Set that, and a caller that omits the password is refused.
+	if err := confirmAccountPassword(c, h.db.DB, userID); err != nil {
+		return
+	}
+
 	log.Printf("🗑️ Deleting account for user ID: %d", userID)
 
 	queries := []struct {

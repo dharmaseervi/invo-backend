@@ -43,6 +43,17 @@ func (h *CompanyBankHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, banks)
 }
 func (h *CompanyBankHandler) Create(c *gin.Context) {
+	// Bank details are what customers pay into, so changing them is worth confirming
+	// with the password: a stolen session could otherwise quietly point every future
+	// invoice at someone else's account. Enforced only when the caller sends one until
+	// both apps ask for it — see confirmAccountPassword.
+	//
+	// Before binding, not after: binding reads the body to the end, so a check that ran
+	// afterwards saw no password at all and waved everything through.
+	if err := confirmAccountPassword(c, h.db, c.GetInt("user_id")); err != nil {
+		return
+	}
+
 	var bank models.CompanyBank
 
 	if err := c.ShouldBindJSON(&bank); err != nil {
@@ -72,6 +83,17 @@ func (h *CompanyBankHandler) Create(c *gin.Context) {
 func (h *CompanyBankHandler) Update(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("bankId"))
 	userID := c.GetInt("user_id")
+
+	// Bank details are what customers pay into, so changing them is worth confirming
+	// with the password: a stolen session could otherwise quietly point every future
+	// invoice at someone else's account. Enforced only when the caller sends one until
+	// both apps ask for it — see confirmAccountPassword.
+	//
+	// Before binding, not after: binding reads the body to the end, so a check that ran
+	// afterwards saw no password at all and waved everything through.
+	if err := confirmAccountPassword(c, h.db, userID); err != nil {
+		return
+	}
 
 	owned, err := bankBelongsToUser(h.db, id, userID)
 	if err != nil {
