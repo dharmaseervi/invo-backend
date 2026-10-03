@@ -70,7 +70,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	credentials.Use(middleware.RateLimiter(), middleware.CredentialRateLimiter(10, 10))
 	{
 		credentials.POST("/login", authHandler.Login)
-		credentials.POST("/forgot-password", authHandler.ForgotPassword)
+		credentials.POST("/forgot-password", middleware.EmailQuota(8, 4, 40, 15), authHandler.ForgotPassword)
 		credentials.POST("/reset-password", authHandler.ResetPassword)
 	}
 
@@ -183,11 +183,14 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/invoices/:id/send-email", emailHandler.SendInvoiceEmail)
 
 		// Add to public routes (no auth needed)
-		credentials.POST("/send-otp", otpHandler.SendOTP)
+		// Endpoints that send a real email are additionally capped per address and per
+		// source: 8 an hour is more than anyone needs, and far less than a flood.
+		mailQuota := middleware.EmailQuota(8, 4, 40, 15)
+		credentials.POST("/send-otp", mailQuota, otpHandler.SendOTP)
 		credentials.POST("/verify-otp", otpHandler.VerifyOTP)
 		// Add to public routes
 		credentials.POST("/verify-email", authHandler.VerifyEmail)
-		credentials.POST("/resend-verification", authHandler.ResendVerification)
+		credentials.POST("/resend-verification", mailQuota, authHandler.ResendVerification)
 
 		protected.DELETE("/account", authHandler.DeleteAccount)
 	}

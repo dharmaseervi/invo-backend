@@ -105,9 +105,10 @@ func AuthMiddleware(jwtSecret []byte, db *sql.DB) gin.HandlerFunc {
 		}
 
 		var validFrom time.Time
+		var currentVersion int
 		switch err := db.QueryRow(
-			`SELECT tokens_valid_from FROM users WHERE id = $1`, userID,
-		).Scan(&validFrom); {
+			`SELECT tokens_valid_from, session_version FROM users WHERE id = $1`, userID,
+		).Scan(&validFrom, &currentVersion); {
 		case err == sql.ErrNoRows:
 			// The account was deleted while a token was still in circulation.
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
@@ -119,9 +120,23 @@ func AuthMiddleware(jwtSecret []byte, db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Second granularity: iat is whole seconds, so a token minted in the same second
-		// as the cutoff must still be honoured or a fresh login could reject itself.
-		if int64(issuedAt) < validFrom.Unix() {
+		// Revocation by counter where the token carries one.
+		//
+		// The timestamp rule cannot be made exact: iat is whole seconds, so a token
+		// minted in the same second as the cutoff has to be honoured or a fresh login
+		// could reject itself — which left a one-second window in which a token stolen
+		// just before a logout still worked. Logout and password reset now raise
+		// session_version, and a token carrying a different number is refused outright.
+		//
+		// Tokens issued before this claim existed are still on people's phones and have
+		// no "sv", so they fall back to the timestamp rule until they expire.
+		if sv, ok := claims["sv"].(float64); ok {
+			if int(sv) != currentVersion {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Session ended, please sign in again"})
+				c.Abort()
+				return
+			}
+		} else if int64(issuedAt) < validFrom.Unix() {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session ended, please sign in again"})
 			c.Abort()
 			return
@@ -269,6 +284,60 @@ func UserRateLimiter(perSecond float64, burst int) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		c.Next()
+	}
+}
+
+// EmailQuota caps how many account emails one address can be made to receive.
+//
+// The per-minute credential limit stops guessing, but it still allows a few hundred
+// messages a day at one address: anybody can ask for a login code, a verification code
+// or a password reset for an email they do not own, and every request sends a real
+// message. That is a nuisance for the person receiving them and a way to burn the
+// sending domain's reputation, which ends with genuine invoices going to spam.
+//
+// Keyed on the target address and on the caller's IP, so neither one address nor one
+// source can be used to flood. An hourly budget with a small burst leaves room for
+// somebody who mistypes their address, loses the first code, then asks again.
+//
+// The two budgets are set separately on purpose: an address only ever belongs to one
+// person, but an IP is shared — the staff of one shop come from a single address, and
+// giving them one address's budget between them would lock out the second person to
+// ask for a code.
+func EmailQuota(accountPerHour float64, accountBurst int, ipPerHour float64, ipBurst int) gin.HandlerFunc {
+	byAccount := newKeyedRateLimiter(rate.Limit(accountPerHour/3600), accountBurst)
+	byIP := newKeyedRateLimiter(rate.Limit(ipPerHour/3600), ipBurst)
+
+	return func(c *gin.Context) {
+		tooMany := func() {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error": "Too many codes requested. Wait a few minutes, and check your spam folder for the last one.",
+			})
+			c.Abort()
+		}
+
+		if !byIP.getLimiter("mail-ip:" + c.ClientIP()).Allow() {
+			tooMany()
+			return
+		}
+
+		// The body has to be restored: the handler binds it after this runs.
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxCredentialBodyPeek))
+		if err == nil {
+			c.Request.Body = io.NopCloser(bytes.NewReader(body))
+
+			var payload struct {
+				Email string `json:"email"`
+			}
+			if json.Unmarshal(body, &payload) == nil && payload.Email != "" {
+				key := "mail:" + strings.ToLower(strings.TrimSpace(payload.Email))
+				if !byAccount.getLimiter(key).Allow() {
+					tooMany()
+					return
+				}
+			}
+		}
+
 		c.Next()
 	}
 }

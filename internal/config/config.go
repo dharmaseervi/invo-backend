@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
@@ -87,6 +88,20 @@ func Load() *Config {
 		config.Database.User = getEnv("DB_USER", "user")
 		config.Database.Password = getEnv("DB_PASSWORD", "password")
 		config.JWT.Secret = getEnv("JWT_SECRET", "dev-only-insecure-secret")
+
+		// ENVIRONMENT is itself a variable that can go missing, and its default is
+		// "development" — so a production deployment that lost that one setting would
+		// quietly sign its sessions with the hard-coded secret above, and anyone could
+		// mint a token for any account. The database it is talking to says what this
+		// really is: a local database means a developer's machine, anything else means
+		// a real deployment, and that must bring its own secret.
+		if config.JWT.Secret == "dev-only-insecure-secret" && !isLocalHost(config.Database.Host) {
+			log.Fatalf(
+				"refusing to start: the built-in development JWT secret cannot be used with database host %q. "+
+					"Set ENVIRONMENT=production and JWT_SECRET (and DB_USER, DB_PASSWORD).",
+				config.Database.Host,
+			)
+		}
 	}
 
 	// The mobile app has no refresh-token flow wired up (long-lived session +
@@ -161,4 +176,14 @@ func (c *Config) GetDbUrl() string {
 		c.Database.DBName,
 		c.Database.SSLMode,
 	)
+}
+
+// isLocalHost reports whether a database host is this machine, which is what tells a
+// developer's run apart from a real deployment when ENVIRONMENT is missing.
+func isLocalHost(host string) bool {
+	switch strings.ToLower(strings.TrimSpace(host)) {
+	case "localhost", "127.0.0.1", "::1", "host.docker.internal", "":
+		return true
+	}
+	return false
 }

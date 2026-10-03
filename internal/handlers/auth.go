@@ -189,6 +189,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"email":   user.Email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(h.tokenExpiration).Unix(),
+		"sv":      sessionVersion(h.db.DB, int64(user.ID)),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -255,6 +256,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		"email":   req.Email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(h.tokenExpiration).Unix(),
+		"sv":      sessionVersion(h.db.DB, int64(userID)),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(h.jwtSecret)
@@ -352,6 +354,7 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		"email":   email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(h.tokenExpiration).Unix(),
+		"sv":      sessionVersion(h.db.DB, int64(c.GetInt("user_id"))),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -375,7 +378,9 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	// issued to this user, so logging out actually ends the session.
 	if userID, exists := c.Get("user_id"); exists {
 		if _, err := h.db.DB.Exec(
-			`UPDATE users SET tokens_valid_from = NOW() WHERE id = $1`, userID,
+			`UPDATE users SET tokens_valid_from = NOW(),
+			        session_version = session_version + 1
+			 WHERE id = $1`, userID,
 		); err != nil {
 			log.Println("failed to revoke tokens on logout:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to log out"})
@@ -553,7 +558,9 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	// how someone recovers a compromised account, so it has to boot any session the
 	// attacker still holds rather than leaving them signed in.
 	_, err = h.db.DB.Exec(
-		`UPDATE users SET password_hash = $1, tokens_valid_from = NOW() WHERE lower(email) = $2`,
+		`UPDATE users SET password_hash = $1, tokens_valid_from = NOW(),
+		        session_version = session_version + 1
+		 WHERE lower(email) = $2`,
 		hashedPassword, req.Email,
 	)
 	if err != nil {
@@ -573,6 +580,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		"email":   req.Email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(h.tokenExpiration).Unix(),
+		"sv":      sessionVersion(h.db.DB, int64(userID)),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(h.jwtSecret)

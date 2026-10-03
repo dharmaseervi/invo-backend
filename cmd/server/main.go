@@ -63,6 +63,32 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
+	// Which hops may be believed about who the caller is.
+	//
+	// By default Gin trusts X-Forwarded-For from anybody, so a caller could put any
+	// address in that header and be rate-limited as that address instead of their own
+	// — a per-IP limit that anyone can step around is no limit at all. The hosting
+	// platform's own proxy sits in front of this server on a private address, so only
+	// private ranges are believed and the client address is taken from the hop beyond
+	// them. TRUSTED_PROXIES (comma-separated IPs or CIDRs) overrides it, and "none"
+	// trusts nothing and uses the direct connection.
+	trusted := []string{"127.0.0.1/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}
+	if v := strings.TrimSpace(os.Getenv("TRUSTED_PROXIES")); v != "" {
+		if strings.EqualFold(v, "none") {
+			trusted = nil
+		} else {
+			trusted = nil
+			for _, p := range strings.Split(v, ",") {
+				if p = strings.TrimSpace(p); p != "" {
+					trusted = append(trusted, p)
+				}
+			}
+		}
+	}
+	if err := r.SetTrustedProxies(trusted); err != nil {
+		log.Fatalf("TRUSTED_PROXIES is not a list of IPs or CIDRs: %v", err)
+	}
+
 	// After Recovery so a panic is still turned into a 500 for the caller; reporting
 	// must not change what the client sees.
 	r.Use(observability.Middleware())

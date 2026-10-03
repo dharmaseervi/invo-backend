@@ -159,6 +159,7 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 		"email":   email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(24 * time.Hour).Unix(),
+		"sv":      sessionVersion(h.db.DB, int64(userID)),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(h.jwtSecret)

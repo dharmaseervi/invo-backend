@@ -5,11 +5,17 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"time"
 )
+
+// One client, reused: a new client per send leaks idle connections, and the timeout
+// covers the whole exchange rather than each read.
+var emailHTTPClient = &http.Client{Timeout: 20 * time.Second}
 
 type EmailService struct {
 	apiKey    string
@@ -96,7 +102,11 @@ func (s *EmailService) send(to, subject, html string, attachments []resendAttach
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	// http.DefaultClient has no timeout at all, so a provider that accepted the
+	// connection and then went quiet held this request — and the database work behind
+	// it — until the client gave up, with the send still running afterwards. 20s is
+	// well beyond a normal send, including a PDF attachment.
+	resp, err := emailHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("resend error: %w", err)
 	}
@@ -124,6 +134,10 @@ func (s *EmailService) SendInvoiceEmail(
 ) error {
 	subject := fmt.Sprintf("Invoice %s from %s", invoiceNumber, s.fromName)
 
+	// Names are escaped: a customer or business name is typed by a person, and dropping
+	// it into the message unescaped let "<" and "&" break the layout — and let markup in
+	// a name rewrite an email that goes out under this business's name.
+
 	html := fmt.Sprintf(`
 		<h2>Invoice %s</h2>
 		<p>Dear %s,</p>
@@ -131,7 +145,7 @@ func (s *EmailService) SendInvoiceEmail(
 		<p>Thank you for your business!</p>
 		<br/>
 		<p>Regards,<br/>%s</p>
-	`, invoiceNumber, toName, s.fromName)
+	`, html.EscapeString(invoiceNumber), html.EscapeString(toName), html.EscapeString(s.fromName))
 
 	attachments := []resendAttachment{
 		{
@@ -158,7 +172,8 @@ func (s *EmailService) SendPaymentReminderEmail(
 		<p>The invoice is attached for your reference. Please let us know if you have any questions.</p>
 		<br/>
 		<p>Regards,<br/>%s</p>
-	`, toName, invoiceNumber, amountDue, dueDate, s.fromName)
+	`, html.EscapeString(toName), html.EscapeString(invoiceNumber), amountDue,
+		html.EscapeString(dueDate), html.EscapeString(s.fromName))
 
 	attachments := []resendAttachment{
 		{
