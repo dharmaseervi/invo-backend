@@ -181,12 +181,19 @@ WHERE le.company_id = $1 AND le.client_id = $2
 	return entries, nil
 }
 
+// GetCompanyLedger is the whole company's ledger, oldest first, for the same reason as
+// a customer's: a running balance reads forwards.
+//
+// limit of 0 means everything, which is what the apps in the store ask for. A company
+// ledger grows with every invoice and payment the business has ever made, so a caller
+// that pages takes the newest page and still receives it oldest-first.
 func (s *LedgerService) GetCompanyLedger(
 	ctx context.Context,
 	companyID int64,
+	limit, offset int,
 ) ([]models.LedgerEntry, error) {
 
-	rows, err := s.db.QueryContext(ctx, `
+	query := `
 	SELECT
     le.id,
     le.company_id,
@@ -202,8 +209,18 @@ func (s *LedgerService) GetCompanyLedger(
 FROM ledger_entries le
 JOIN clients c ON c.id = le.client_id   -- ✅ THIS IS KEY
 WHERE le.company_id = $1
-ORDER BY le.created_at ASC
-    `, companyID)
+    `
+	args := []interface{}{companyID}
+	if limit > 0 {
+		query = `SELECT * FROM (` + query + `
+			ORDER BY le.created_at DESC, le.id DESC LIMIT $2 OFFSET $3
+		) page ORDER BY created_at ASC, id ASC`
+		args = append(args, limit, offset)
+	} else {
+		query += " ORDER BY le.created_at ASC, le.id ASC"
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 
 	if err != nil {
 		return nil, err
