@@ -52,8 +52,14 @@ func (s *CreditNoteService) CreateTx(
 	}
 	if req.InvoiceID != nil {
 		var status string
+		// FOR UPDATE: the "has this already been returned?" check below counts earlier
+		// credit notes, and two returns arriving together both counted the same set and
+		// both passed — so an invoice for 2 could be returned twice over, crediting the
+		// customer twice and putting four items back into stock. Locking the invoice
+		// makes the second one wait and then see the first one's credit note.
 		err := tx.QueryRow(
-			`SELECT status FROM invoices WHERE id = $1 AND company_id = $2 AND client_id = $3`,
+			`SELECT status FROM invoices WHERE id = $1 AND company_id = $2 AND client_id = $3
+			 FOR UPDATE`,
 			*req.InvoiceID, companyID, req.ClientID,
 		).Scan(&status)
 		if err == sql.ErrNoRows {

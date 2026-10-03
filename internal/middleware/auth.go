@@ -175,6 +175,25 @@ func newKeyedRateLimiter(r rate.Limit, burst int) *keyedRateLimiter {
 	return l
 }
 
+// retention is how long an idle key must be kept before forgetting it is safe.
+//
+// Dropping a key hands its owner a full burst again, so a key may only be forgotten
+// once its bucket would have refilled anyway. With the email quota — 8 an hour, burst
+// of 4 — a fixed ten-minute sweep was a way around the limit: wait eleven minutes,
+// get four more messages, which is roughly twenty an hour rather than eight. Fast
+// limiters still expire quickly, because their buckets refill in seconds.
+func (l *keyedRateLimiter) retention() time.Duration {
+	const floor = 10 * time.Minute
+	if l.r <= 0 {
+		return floor
+	}
+	refill := time.Duration(float64(l.burst) / float64(l.r) * float64(time.Second))
+	if refill < floor {
+		return floor
+	}
+	return refill
+}
+
 func (l *keyedRateLimiter) getLimiter(key string) *rate.Limiter {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -189,14 +208,16 @@ func (l *keyedRateLimiter) getLimiter(key string) *rate.Limiter {
 	return v.limiter
 }
 
-// cleanupStale drops any key idle for 10 minutes, so a long-running server does not
-// accumulate one entry per address or account forever.
+// cleanupStale forgets keys that have been idle long enough that their bucket would
+// have refilled anyway, so a long-running server does not accumulate one entry per
+// address or account forever — without giving anyone a fresh budget by waiting.
 func (l *keyedRateLimiter) cleanupStale() {
 	for {
 		time.Sleep(5 * time.Minute)
+		keep := l.retention()
 		l.mu.Lock()
 		for key, v := range l.visitors {
-			if time.Since(v.lastSeen) > 10*time.Minute {
+			if time.Since(v.lastSeen) > keep {
 				delete(l.visitors, key)
 			}
 		}
