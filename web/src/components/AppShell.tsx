@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { getToken } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Icon, type IconName } from "@/components/icons";
-import { Button, Card, Spinner } from "@/components/ui";
+import { Button, Card, Spinner, useOverlay } from "@/components/ui";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 /**
@@ -167,20 +167,10 @@ export function AppShell({
         {sidebar}
       </aside>
 
-      {/* Mobile drawer */}
-      {navOpen && (
-        <div
-          className="animate-fade-in fixed inset-0 z-40 bg-ink/40 lg:hidden"
-          onMouseDown={() => setNavOpen(false)}
-        >
-          <div
-            className="animate-slide-in h-full w-64 border-r border-line bg-surface"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            {sidebar}
-          </div>
-        </div>
-      )}
+      {/* Mobile drawer. A dialog like any other: Escape closes it, Tab stays inside
+          it rather than walking into the page behind it, and the focus returns to the
+          menu button when it closes. */}
+      {navOpen && <MobileNav onClose={() => setNavOpen(false)}>{sidebar}</MobileNav>}
 
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-30 border-b border-line bg-canvas/80 backdrop-blur-md">
@@ -214,8 +204,33 @@ export function AppShell({
 /**
  * Shown instead of a screen when the account has no company. Every record belongs to
  * one, so there is nothing to list and nothing that can be created until it exists.
+ *
+ * When the list could not be loaded at all, this says so and offers Retry instead:
+ * telling a shop with years of invoices to "create your company" because one request
+ * failed is alarming, and the fix it suggests is the wrong one.
  */
 export function NoCompany() {
+  const { companiesError, refreshCompanies } = useAuth();
+
+  if (companiesError) {
+    return (
+      <Card className="px-6 py-16 text-center">
+        <div className="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-[var(--radius-base)] border border-line bg-subtle text-muted">
+          <Icon name="alert" className="h-4 w-4" />
+        </div>
+        <p className="text-heading-16">Couldn&apos;t load your companies</p>
+        <p className="mx-auto mt-1.5 max-w-sm text-copy-14 text-muted">
+          {companiesError} Your data is still there — this is a connection problem.
+        </p>
+        <div className="mt-5 flex justify-center">
+          <Button variant="primary" onClick={() => void refreshCompanies().catch(() => {})}>
+            Try again
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="px-6 py-16 text-center">
       <div className="mx-auto mb-4 grid h-10 w-10 place-items-center rounded-[var(--radius-base)] border border-line bg-subtle text-muted">
@@ -234,5 +249,32 @@ export function NoCompany() {
         </Link>
       </div>
     </Card>
+  );
+}
+
+/**
+ * The mobile navigation drawer.
+ *
+ * Its own component so it can use the shared overlay hook: the hook has to mount and
+ * unmount with the drawer, and a hook cannot be called conditionally inside AppShell.
+ */
+function MobileNav({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  const ref = useOverlay(onClose);
+  return (
+    <div
+      className="animate-fade-in fixed inset-0 z-40 bg-ink/40 lg:hidden"
+      onMouseDown={onClose}
+    >
+      <div
+        ref={ref}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        className="animate-slide-in h-full w-64 border-r border-line bg-surface"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 /** App Store id for Invo Billing, from App Store Connect → App Information. */
 const APP_STORE_ID = "6811639667";
@@ -26,51 +26,76 @@ const DISMISSED_KEY = "invo_app_banner_dismissed";
  * cannot know about an existing install; tapping through lands on the App Store page,
  * which says "Open" if they already have it.
  */
+/**
+ * Whether the bar belongs on screen, decided by reading the browser rather than by
+ * setting state from an effect.
+ *
+ * It has to be answered on the client: these pages are prerendered at build time where
+ * there is no navigator and no localStorage, and guessing would be a hydration
+ * mismatch. The answer is cached so repeated reads are stable — useSyncExternalStore
+ * compares snapshots, and recomputing a fresh object or re-reading localStorage on
+ * every render would spin.
+ */
+let cachedShow: boolean | null = null;
+const listeners = new Set<() => void>();
+
+function computeShow(): boolean {
+  const ua = navigator.userAgent;
+  const isIOS =
+    /iPad|iPhone|iPod/.test(ua) ||
+    // iPadOS 13+ reports itself as a Mac; the touch points give it away.
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (!isIOS) return false;
+
+  // Every iOS browser is WebKit and says "Safari" somewhere in its user agent.
+  // Only the real Safari lacks one of these vendor markers, and only the real
+  // Safari renders the Smart App Banner.
+  const isRealSafari = !/CriOS|FxiOS|EdgiOS|OPiOS|GSA|FBAN|FBAV|Instagram|Line/i.test(ua);
+  if (isRealSafari) return false;
+
+  // Standalone means it is already running from the Home Screen as a PWA, where an
+  // ad for a different app is just noise.
+  const standalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (window.navigator as { standalone?: boolean }).standalone === true;
+  if (standalone) return false;
+
+  try {
+    if (localStorage.getItem(DISMISSED_KEY) === "1") return false;
+  } catch {
+    // Private browsing can throw on access. Showing the bar is the safe failure.
+  }
+  return true;
+}
+
+function getSnapshot(): boolean {
+  if (cachedShow === null) cachedShow = computeShow();
+  return cachedShow;
+}
+
+function subscribe(onChange: () => void): () => void {
+  listeners.add(onChange);
+  return () => listeners.delete(onChange);
+}
+
+function hide(): void {
+  cachedShow = false;
+  listeners.forEach((l) => l());
+}
+
 export function GetTheApp() {
-  const [show, setShow] = useState(false);
-
-  // After mount, never in a state initialiser: these pages are prerendered at build
-  // time where there is no navigator and no localStorage, and guessing would be a
-  // hydration mismatch.
-  useEffect(() => {
-    const ua = navigator.userAgent;
-    const isIOS =
-      /iPad|iPhone|iPod/.test(ua) ||
-      // iPadOS 13+ reports itself as a Mac; the touch points give it away.
-      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    if (!isIOS) return;
-
-    // Every iOS browser is WebKit and says "Safari" somewhere in its user agent.
-    // Only the real Safari lacks one of these vendor markers, and only the real
-    // Safari renders the Smart App Banner.
-    const isRealSafari = !/CriOS|FxiOS|EdgiOS|OPiOS|GSA|FBAN|FBAV|Instagram|Line/i.test(ua);
-    if (isRealSafari) return;
-
-    // Standalone means it is already running from the Home Screen as a PWA, where an
-    // ad for a different app is just noise.
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as { standalone?: boolean }).standalone === true;
-    if (standalone) return;
-
-    try {
-      if (localStorage.getItem(DISMISSED_KEY) === "1") return;
-    } catch {
-      // Private browsing can throw on access. Showing the bar is the safe failure.
-    }
-
-    setShow(true);
-  }, []);
+  // Server and first client render agree on false, then the real answer arrives.
+  const show = useSyncExternalStore(subscribe, getSnapshot, () => false);
 
   if (!show) return null;
 
   function dismiss() {
-    setShow(false);
     try {
       localStorage.setItem(DISMISSED_KEY, "1");
     } catch {
       // Not worth surfacing: the bar is gone for this page view either way.
     }
+    hide();
   }
 
   return (

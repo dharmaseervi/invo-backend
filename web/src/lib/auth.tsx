@@ -25,6 +25,13 @@ type AuthState = {
   companies: Company[];
   /** True until the stored token has been checked, so screens do not flash. */
   loading: boolean;
+  /**
+   * Set when the company list could not be loaded — a dropped connection, a server
+   * error — as opposed to an account that genuinely has no company yet. Without it both
+   * look identical, and a shop with ten years of invoices was invited to "create your
+   * first company" because one request failed.
+   */
+  companiesError: string | null;
   signIn: (token: string, user: AuthUser) => Promise<void>;
   signOut: () => Promise<void>;
   selectCompany: (id: number) => void;
@@ -40,9 +47,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [companiesError, setCompaniesError] = useState<string | null>(null);
 
   const loadCompanies = useCallback(async () => {
-    const res = await companiesApi.list();
+    let res;
+    try {
+      res = await companiesApi.list();
+    } catch (err) {
+      // An auth failure is handled by the caller, which signs the session out; anything
+      // else is reported so the screen can offer Retry instead of pretending the
+      // account is empty.
+      if (!(err instanceof ApiError && err.isAuthError)) {
+        setCompaniesError(err instanceof Error ? err.message : "Could not load your companies.");
+      }
+      throw err;
+    }
+    setCompaniesError(null);
     const list = res.companies ?? [];
     setCompanies(list);
 
@@ -144,12 +164,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       companies,
       company: companies.find((c) => c.id === companyId) ?? null,
       loading,
+      companiesError,
       signIn,
       signOut,
       selectCompany,
       refreshCompanies: loadCompanies,
     }),
-    [user, companies, companyId, loading, signIn, signOut, selectCompany, loadCompanies],
+    [user, companies, companyId, loading, companiesError, signIn, signOut, selectCompany, loadCompanies],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

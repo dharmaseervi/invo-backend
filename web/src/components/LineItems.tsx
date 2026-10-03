@@ -64,6 +64,10 @@ export function LineItems({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
   const [searching, setSearching] = useState(false);
+  // Why the last lookup failed, if it did. Silence left the previous search's items
+  // under the new text, so a failed lookup looked like a list of matches — and clicking
+  // one added an item nobody had searched for.
+  const [searchError, setSearchError] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -73,18 +77,28 @@ export function LineItems({
       void (async () => {
         if (!term) {
           setResults([]);
+          setSearchError(null);
           return;
         }
         setSearching(true);
+        setSearchError(null);
         try {
           const res = await itemsApi.list(companyId, {
             limit: 8,
             search: term,
             signal: controller.signal,
           });
-          if (!controller.signal.aborted) setResults(res.items ?? []);
-        } catch {
-          /* a failed lookup leaves the previous results; the user can retype */
+          if (!controller.signal.aborted) {
+            setResults(res.items ?? []);
+            setSearchError(null);
+          }
+        } catch (e) {
+          // Clear the stale matches and say what happened, rather than showing the
+          // previous search's items as if they matched this one.
+          if (!controller.signal.aborted) {
+            setResults([]);
+            setSearchError(e instanceof Error ? e.message : "Could not search items.");
+          }
         } finally {
           if (!controller.signal.aborted) setSearching(false);
         }
@@ -113,6 +127,7 @@ export function LineItems({
       ]);
       setQuery("");
       setResults([]);
+      setSearchError(null);
     },
     [lines, onChange],
   );
@@ -140,6 +155,8 @@ export function LineItems({
               <div className="grid place-items-center py-4">
                 <Spinner className="h-4 w-4" />
               </div>
+            ) : searchError ? (
+              <p className="px-3 py-3 text-sm text-[var(--destructive)]">{searchError}</p>
             ) : results.length === 0 ? (
               <p className="px-3 py-3 text-sm text-muted">No items matched.</p>
             ) : (

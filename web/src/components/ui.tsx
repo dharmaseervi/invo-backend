@@ -475,12 +475,31 @@ export function Td({
 
 /* ---------- Overlays ---------- */
 
-function useOverlay(onClose: () => void) {
+/**
+ * Open overlays, innermost last.
+ *
+ * Every overlay listened on the document, so with a dialog opened from a dialog one
+ * Escape closed both — and the Tab trap of the one underneath fought the one on top for
+ * the focus. Only the overlay on top of this stack answers the keyboard.
+ */
+const overlayStack: symbol[] = [];
+
+export function useOverlay(onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const id = Symbol("overlay");
+    overlayStack.push(id);
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (overlayStack[overlayStack.length - 1] !== id) return;
+      if (e.key === "Escape") {
+        // Stops here: without this the dialog underneath sees the same Escape as soon
+        // as this one unmounts and closes too.
+        e.stopPropagation();
+        onClose();
+        return;
+      }
       if (e.key !== "Tab" || !ref.current) return;
       // Focus stays inside while it is open: tabbing out of a dialog and typing into
       // the page behind it is how data gets entered in the wrong place.
@@ -504,8 +523,13 @@ function useOverlay(onClose: () => void) {
     document.body.style.overflow = "hidden";
     ref.current?.querySelector<HTMLElement>("input,select,textarea,button")?.focus();
     return () => {
+      const at = overlayStack.lastIndexOf(id);
+      if (at !== -1) overlayStack.splice(at, 1);
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = previousOverflow;
+      // Only the last overlay to close puts scrolling back: an inner dialog closing
+      // would otherwise restore "hidden" from the one still open, or worse, release the
+      // page while a dialog is still up.
+      if (overlayStack.length === 0) document.body.style.overflow = previousOverflow;
       previouslyFocused?.focus?.();
     };
   }, [onClose]);
