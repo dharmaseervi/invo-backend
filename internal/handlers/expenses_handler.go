@@ -427,3 +427,58 @@ func (h *expenseHandler) GetExpenseStats(c *gin.Context) {
 		},
 	})
 }
+
+// GetExpenseSummary returns the figures an expense screen shows above the rows: this
+// month, last month, and the total.
+//
+// GET /api/v1/companies/:companyId/expenses/summary
+//
+// The apps summed the rows they had loaded. That was the whole list until expenses were
+// paged, and a page afterwards — so a company that records more than a page of expenses
+// in a month would have seen a month's total quietly under-report. The months are
+// worked out in the database's own calendar, over every row.
+func (h *expenseHandler) GetExpenseSummary(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	companyID := c.Param("companyId")
+
+	var exists bool
+	h.db.DB.QueryRow(`
+        SELECT EXISTS(SELECT 1 FROM companies WHERE id=$1 AND user_id=$2)
+    `, companyID, userID).Scan(&exists)
+
+	if !exists {
+		c.JSON(403, gin.H{"error": "Unauthorized company access"})
+		return
+	}
+
+	var thisMonth, lastMonth, total float64
+	var count int
+	err := h.db.DB.QueryRow(`
+        SELECT
+            COALESCE(SUM(amount) FILTER (
+                WHERE date >= date_trunc('month', CURRENT_DATE)
+                  AND date <  date_trunc('month', CURRENT_DATE) + INTERVAL '1 month'
+            ), 0),
+            COALESCE(SUM(amount) FILTER (
+                WHERE date >= date_trunc('month', CURRENT_DATE) - INTERVAL '1 month'
+                  AND date <  date_trunc('month', CURRENT_DATE)
+            ), 0),
+            COALESCE(SUM(amount), 0),
+            COUNT(*)
+        FROM expensess
+        WHERE company_id=$1
+    `, companyID).Scan(&thisMonth, &lastMonth, &total, &count)
+
+	if err != nil {
+		log.Println("Query ERROR:", err)
+		c.JSON(500, gin.H{"error": "Failed to fetch expense summary"})
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"this_month": thisMonth,
+		"last_month": lastMonth,
+		"total":      total,
+		"count":      count,
+	})
+}

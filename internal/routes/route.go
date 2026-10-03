@@ -153,6 +153,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.PUT("/expenses/:id", expenseHandler.UpdateExpense)
 		protected.DELETE("/expenses/:id", expenseHandler.DeleteExpense)
 		protected.GET("/companies/:companyId/expenses", expenseHandler.GetExpenses)
+		// This month, last month and the total, over every expense — the rows are paged.
+		protected.GET("/companies/:companyId/expenses/summary", expenseHandler.GetExpenseSummary)
 		// protected.GET("/companies/:id/expenses/range", expenseHandler.GetExpensesByDateRange)
 		// protected.GET("/companies/:id/expenses/stats", expenseHandler.GetExpenseStats)
 
@@ -160,7 +162,12 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 
 		// Ledger routes
 		protected.GET("/ledger/:clientId", ledgerHandler.GetClientLedger)
+		// Totals over a customer's whole history, so the rows can be paged without the
+		// figures becoming the figures of a page.
+		protected.GET("/ledger/:clientId/summary", ledgerHandler.GetClientLedgerSummary)
 		protected.GET("/companies/:companyId/ledger", ledgerHandler.GetCompanyLedger)
+		// One row per customer with history: what a ledger list screen actually shows.
+		protected.GET("/companies/:companyId/ledger/summary", ledgerHandler.GetCompanyLedgerSummaries)
 
 		protected.POST("/payments", paymentHandler.RecordPayment)
 		protected.GET("/companies/:companyId/payments", paymentHandler.GetPayments)

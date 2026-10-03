@@ -3,9 +3,10 @@ package services
 import (
 	"context"
 	"database/sql"
-	"invo-server/internal/money"
+	"strconv"
 
 	"invo-server/internal/models"
+	"invo-server/internal/money"
 )
 
 type LedgerService struct {
@@ -251,4 +252,101 @@ WHERE le.company_id = $1
 	}
 
 	return entries, nil
+}
+
+// ClientLedgerSummary is one customer's totals over their whole history.
+//
+// The balance is taken from their most recent entry rather than debit minus credit:
+// the running balance is what every other screen quotes, and it is the figure the
+// customer is shown on a statement.
+func (s *LedgerService) ClientLedgerSummary(
+	ctx context.Context,
+	companyID, clientID int64,
+) (models.LedgerSummary, error) {
+	var out models.LedgerSummary
+	out.ClientID = clientID
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(MAX(c.name), ''),
+			COALESCE(SUM(le.debit), 0),
+			COALESCE(SUM(le.credit), 0),
+			COALESCE((
+				SELECT balance FROM ledger_entries
+				WHERE company_id = $1 AND client_id = $2
+				ORDER BY created_at DESC, id DESC LIMIT 1
+			), 0),
+			COUNT(le.id),
+			MAX(le.created_at)
+		FROM ledger_entries le
+		JOIN clients c ON c.id = le.client_id
+		WHERE le.company_id = $1 AND le.client_id = $2
+	`, companyID, clientID).Scan(
+		&out.ClientName, &out.Debit, &out.Credit, &out.Balance, &out.Entries, &out.LastEntryAt,
+	)
+	return out, err
+}
+
+// CompanyLedgerSummaries is one row per customer who has any ledger history, which is
+// what a ledger list screen actually shows.
+//
+// It replaces fetching every entry the company has ever written and grouping them in
+// the app: that meant downloading a whole business's history to draw a list of names
+// and balances, and a paged version of it would have given each customer the balance
+// they happened to have part-way through.
+func (s *LedgerService) CompanyLedgerSummaries(
+	ctx context.Context,
+	companyID int64,
+	search string,
+	limit, offset int,
+) ([]models.LedgerSummary, error) {
+	query := `
+		SELECT
+			le.client_id,
+			MAX(c.name),
+			COALESCE(SUM(le.debit), 0),
+			COALESCE(SUM(le.credit), 0),
+			COALESCE((
+				SELECT balance FROM ledger_entries inner_le
+				WHERE inner_le.company_id = le.company_id AND inner_le.client_id = le.client_id
+				ORDER BY inner_le.created_at DESC, inner_le.id DESC LIMIT 1
+			), 0),
+			COUNT(le.id),
+			MAX(le.created_at)
+		FROM ledger_entries le
+		JOIN clients c ON c.id = le.client_id
+		WHERE le.company_id = $1
+	`
+	args := []interface{}{companyID}
+	if search != "" {
+		query += " AND c.name ILIKE $2"
+		args = append(args, "%"+search+"%")
+	}
+	// Busiest first, then by id so the order is fixed between pages.
+	query += `
+		GROUP BY le.client_id, le.company_id
+		ORDER BY MAX(le.created_at) DESC, le.client_id DESC
+	`
+	if limit > 0 {
+		query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
+		args = append(args, limit, offset)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []models.LedgerSummary{}
+	for rows.Next() {
+		var r models.LedgerSummary
+		if err := rows.Scan(
+			&r.ClientID, &r.ClientName, &r.Debit, &r.Credit, &r.Balance, &r.Entries, &r.LastEntryAt,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
