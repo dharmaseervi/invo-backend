@@ -175,6 +175,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// credit note routes
 		protected.POST("/credit-notes", creditNoteHandler.Create)
 		protected.GET("/credit-notes", creditNoteHandler.GetAll)
+		// Before the :id route, or "summary" is read as a credit note id.
+		protected.GET("/credit-notes/summary", creditNoteHandler.GetSummary)
 		protected.GET("/credit-notes/:id", creditNoteHandler.GetByID)
 
 		// Dashboard routes

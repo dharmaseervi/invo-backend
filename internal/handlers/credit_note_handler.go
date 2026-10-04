@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -109,6 +110,8 @@ func (h *CreditNoteHandler) GetAll(c *gin.Context) {
 
 	result, err := h.service.GetAll(
 		companyID,
+		strings.TrimSpace(c.Query("search")),
+		strings.ToLower(strings.TrimSpace(c.Query("type"))),
 		clampPageSize(mustAtoi(c.Query("limit")), 0),
 		mustAtoi(c.Query("offset")),
 	)
@@ -160,4 +163,36 @@ func (h *CreditNoteHandler) GetByID(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+// GetSummary returns the counts and amounts a credit-note screen shows above its rows.
+//
+// GET /api/v1/credit-notes/summary?company_id=&search=
+func (h *CreditNoteHandler) GetSummary(c *gin.Context) {
+	userID := c.GetInt("user_id")
+
+	companyID, err := strconv.ParseInt(c.Query("company_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
+		return
+	}
+
+	owned, err := companyBelongsToUser(h.db, companyID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	summary, err := h.service.Summary(companyID, strings.TrimSpace(c.Query("search")))
+	if err != nil {
+		log.Println("failed to fetch credit note summary:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch summary"})
+		return
+	}
+
+	c.JSON(http.StatusOK, summary)
 }

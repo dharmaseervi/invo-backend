@@ -350,3 +350,44 @@ func (s *LedgerService) CompanyLedgerSummaries(
 	}
 	return out, rows.Err()
 }
+
+// CompanyLedgerTotals adds up every customer's closing balance: what the business is
+// owed, what it owes, and how many customers have any history.
+//
+// The screens summed the customer rows they had loaded, so the headline figure
+// described a page.
+func (s *LedgerService) CompanyLedgerTotals(
+	ctx context.Context,
+	companyID int64,
+	search string,
+) (models.CompanyLedgerTotals, error) {
+	var out models.CompanyLedgerTotals
+
+	// Each customer's balance is their most recent entry's running balance, which is
+	// the figure every other screen quotes; the totals are then taken over those.
+	query := `
+		WITH latest AS (
+			SELECT DISTINCT ON (le.client_id)
+				le.client_id, le.balance
+			FROM ledger_entries le
+			JOIN clients c ON c.id = le.client_id
+			WHERE le.company_id = $1
+	`
+	args := []interface{}{companyID}
+	if search != "" {
+		query += " AND c.name ILIKE $2"
+		args = append(args, "%"+search+"%")
+	}
+	query += `
+			ORDER BY le.client_id, le.created_at DESC, le.id DESC
+		)
+		SELECT
+			COALESCE(SUM(balance) FILTER (WHERE balance > 0), 0),
+			COALESCE(-SUM(balance) FILTER (WHERE balance < 0), 0),
+			COUNT(*)
+		FROM latest
+	`
+
+	err := s.db.QueryRowContext(ctx, query, args...).Scan(&out.Receivable, &out.Payable, &out.Clients)
+	return out, err
+}

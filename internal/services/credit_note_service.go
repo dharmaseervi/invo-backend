@@ -308,6 +308,8 @@ func (s *CreditNoteService) CreateTx(
 // a caller that pages gets a stable order, since credit_date alone is not unique.
 func (s *CreditNoteService) GetAll(
 	companyID int64,
+	search string,
+	creditType string,
 	limit, offset int,
 ) ([]models.CreditNoteListDTO, error) {
 
@@ -325,11 +327,23 @@ func (s *CreditNoteService) GetAll(
 		FROM credit_notes cn
 		JOIN clients cl ON cl.id = cn.client_id
 		WHERE cn.company_id = $1
-		ORDER BY cn.credit_date DESC, cn.id DESC
 	`
 	args := []interface{}{companyID}
+
+	// Searching and filtering here, not in the app: the screen holds a page, so a
+	// search done there missed every credit note that had not been downloaded.
+	if search != "" {
+		query += " AND (cn.credit_number ILIKE $2 OR cl.name ILIKE $2)"
+		args = append(args, "%"+search+"%")
+	}
+	if creditType == "return" || creditType == "adjustment" || creditType == "discount" {
+		// From a fixed list, never the raw parameter.
+		query += " AND cn.type = '" + creditType + "'"
+	}
+
+	query += " ORDER BY cn.credit_date DESC, cn.id DESC"
 	if limit > 0 {
-		query += " LIMIT $2 OFFSET $3"
+		query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
 		args = append(args, limit, offset)
 	}
 
@@ -460,3 +474,35 @@ func (s *CreditNoteService) GetByID(
 type CreditNoteInputError struct{ Msg string }
 
 func (e CreditNoteInputError) Error() string { return e.Msg }
+
+// Summary counts a company's credit notes and what they came to, over everything that
+// matches rather than the page a screen happens to hold.
+func (s *CreditNoteService) Summary(
+	companyID int64,
+	search string,
+) (models.CreditNoteSummary, error) {
+	var out models.CreditNoteSummary
+
+	query := `
+		SELECT
+			COUNT(*),
+			COUNT(*) FILTER (WHERE cn.type = 'return'),
+			COUNT(*) FILTER (WHERE cn.type = 'adjustment'),
+			COUNT(*) FILTER (WHERE cn.type = 'discount'),
+			COALESCE(SUM(cn.total), 0),
+			COALESCE(SUM(cn.balance), 0)
+		FROM credit_notes cn
+		JOIN clients cl ON cl.id = cn.client_id
+		WHERE cn.company_id = $1
+	`
+	args := []interface{}{companyID}
+	if search != "" {
+		query += " AND (cn.credit_number ILIKE $2 OR cl.name ILIKE $2)"
+		args = append(args, "%"+search+"%")
+	}
+
+	err := s.db.QueryRow(query, args...).Scan(
+		&out.Total, &out.Returns, &out.Adjustments, &out.Discounts, &out.Amount, &out.Balance,
+	)
+	return out, err
+}

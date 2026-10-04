@@ -97,3 +97,14 @@ type CreditNoteDetailResponse struct {
 
 	Items []CreditNoteItemResponse `json:"items"`
 }
+
+// CreditNoteSummary is the figures a credit-note screen shows above the rows, counted
+// over every credit note that matches — the apps added up the page they held.
+type CreditNoteSummary struct {
+	Total       int     `json:"total"`
+	Returns     int     `json:"returns"`
+	Adjustments int     `json:"adjustments"`
+	Discounts   int     `json:"discounts"`
+	Amount      float64 `json:"amount"`
+	Balance     float64 `json:"balance"`
+}

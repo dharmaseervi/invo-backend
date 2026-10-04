@@ -177,7 +177,16 @@ func (h *LedgerHandler) GetCompanyLedgerSummaries(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": rows})
+	totals, err := h.ledgerService.CompanyLedgerTotals(
+		c.Request.Context(), companyID, strings.TrimSpace(c.Query("search")),
+	)
+	if err != nil {
+		log.Println("failed to fetch company ledger totals:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch ledger summary"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": rows, "totals": totals})
 }
 
 // companyFromHeader reads and authorises X-Company-ID, which is how the ledger routes

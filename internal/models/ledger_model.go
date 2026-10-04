@@ -31,3 +31,15 @@ type LedgerSummary struct {
 	Entries     int        `json:"entries"`
 	LastEntryAt *time.Time `json:"last_entry_at"`
 }
+
+// CompanyLedgerTotals is the business's position across every customer, not just the
+// ones a screen has loaded: a "Total receivable" summed from a page is the receivable
+// of a page.
+//
+// Receivable and payable are kept apart rather than netted, because a customer in
+// credit does not reduce what the others owe — a single net figure hides both.
+type CompanyLedgerTotals struct {
+	Receivable float64 `json:"receivable"`
+	Payable    float64 `json:"payable"`
+	Clients    int     `json:"clients"`
+}
