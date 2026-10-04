@@ -114,6 +114,10 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 
 		// Item routes
 		protected.POST("/items", itemHandler.CreateItem)
+		// Catalogue import: preview first, which writes nothing, then apply the rows
+		// the person kept.
+		protected.POST("/items/import/preview", itemHandler.PreviewItemImport)
+		protected.POST("/items/import", itemHandler.ApplyItemImport)
 		protected.PUT("/items/:itemId", itemHandler.UpdateItem)
 		protected.GET("/items/:companyId/all", itemHandler.GetItems)
 		protected.GET("/item/:itemId/one", itemHandler.GetItemByID)
