@@ -142,6 +142,17 @@ var routePermissions = map[string]Permission{
 	"GET /api/v1/suppliers/:id/ledger/summary": PermSeeCosts,
 	"GET /api/v1/item/:itemId/movements":       PermSeeCosts,
 
+	// Closing the day. Counting the floor corrects stock and shows what everything
+	// cost; counting the drawer is the day's takings. Neither is a counter job.
+	"POST /api/v1/stocktakes":           PermEditCatalogue,
+	"GET /api/v1/stocktakes/:id":        PermEditCatalogue,
+	"POST /api/v1/stocktakes/:id/count": PermEditCatalogue,
+	"POST /api/v1/stocktakes/:id/apply": PermEditCatalogue,
+	"DELETE /api/v1/stocktakes/:id":     PermEditCatalogue,
+	"GET /api/v1/day-closing":           PermSeeReports,
+	"POST /api/v1/day-closing":          PermSeeReports,
+	"GET /api/v1/day-closings":          PermSeeReports,
+
 	// What the business earned and is owed.
 	"GET /api/v1/ledger/:clientId":                      PermSeeReports,
 	"GET /api/v1/ledger/:clientId/summary":              PermSeeReports,

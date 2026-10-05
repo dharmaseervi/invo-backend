@@ -43,6 +43,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	purchaseService := services.NewPurchaseService(db.DB)
 	purchaseHandler := handlers.NewPurchaseHandler(db.DB, purchaseService)
 	staffHandler := handlers.NewStaffHandler(db.DB)
+	stocktakeService := services.NewStocktakeService(db.DB)
+	closingHandler := handlers.NewClosingHandler(db.DB, stocktakeService, ledgerService)
 
 	paymentService := services.NewPaymentService(db.DB, ledgerService)
 	paymentHandler := handlers.NewPaymentHandler(db, paymentService)
@@ -205,6 +207,16 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/supplier-payments", purchaseHandler.PaySupplier)
 		protected.GET("/suppliers/:id/ledger", purchaseHandler.SupplierLedger)
 		protected.GET("/suppliers/:id/ledger/summary", purchaseHandler.SupplierLedgerSummary)
+
+		// Closing the day: counting the floor, and counting the drawer.
+		protected.POST("/stocktakes", closingHandler.StartStocktake)
+		protected.GET("/stocktakes/:id", closingHandler.GetStocktake)
+		protected.POST("/stocktakes/:id/count", closingHandler.CountItem)
+		protected.POST("/stocktakes/:id/apply", closingHandler.ApplyStocktake)
+		protected.DELETE("/stocktakes/:id", closingHandler.AbandonStocktake)
+		protected.GET("/day-closing", closingHandler.GetDayClosing)
+		protected.POST("/day-closing", closingHandler.CloseDay)
+		protected.GET("/day-closings", closingHandler.GetRecentClosings)
 
 		// Who works here. Owner only — enforced by the permission policy, not here.
 		protected.GET("/companies/:companyId/staff", staffHandler.GetStaff)
