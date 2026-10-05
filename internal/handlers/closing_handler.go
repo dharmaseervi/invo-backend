@@ -214,7 +214,9 @@ func (h *ClosingHandler) CloseDay(c *gin.Context) {
 	var req struct {
 		Date    string  `json:"date"`
 		Counted float64 `json:"counted_cash"`
-		Note    string  `json:"note"`
+		// Optional: left out, the drawer carries over from the last closing.
+		Opening *float64 `json:"opening_cash"`
+		Note    string   `json:"note"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
@@ -223,7 +225,7 @@ func (h *ClosingHandler) CloseDay(c *gin.Context) {
 
 	closing, err := h.ledger.Close(
 		companyID, int64(c.GetInt("user_id")),
-		closingDate(req.Date), req.Counted, req.Note,
+		closingDate(req.Date), req.Counted, req.Opening, req.Note,
 	)
 	if err != nil {
 		failClosing(c, err, "Failed to close that day")

@@ -62,10 +62,11 @@ func (h *expenseHandler) CreateExpense(c *gin.Context) {
 	// Insert the expense
 	var expenseID int
 	err := h.db.DB.QueryRow(`
-        INSERT INTO expensess (name, amount, description, date, company_id, user_id) 
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO expensess (name, amount, description, date, company_id, user_id, payment_method) 
+        VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
         RETURNING id
-    `, request.Name, request.Amount, request.Description, request.Date, request.CompanyID, userID).Scan(&expenseID)
+    `, request.Name, request.Amount, request.Description, request.Date, request.CompanyID, userID,
+		request.PaymentMethod).Scan(&expenseID)
 
 	if err != nil {
 		log.Println("failed to create expense:", err)
@@ -104,7 +105,7 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
 	// apps already in the store keep working. id breaks ties between expenses recorded
 	// on the same date, without which a row could land on two pages or on none.
 	query := `
-        SELECT id, name, amount, description, date, created_at, updated_at
+        SELECT id, name, amount, description, date, COALESCE(payment_method, ''), created_at, updated_at
         FROM expensess
         WHERE company_id=$1
         ORDER BY date DESC, id DESC
@@ -134,6 +135,7 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
 			&exp.Amount,
 			&exp.Description,
 			&exp.Date,
+			&exp.PaymentMethod,
 			&exp.CreatedAt,
 			&exp.UpdatedAt,
 		)
@@ -162,7 +164,7 @@ func (h *expenseHandler) GetExpenseByID(c *gin.Context) {
 
 	// Fetch expense and verify ownership
 	err := h.db.DB.QueryRow(`
-        SELECT id, name, amount, description, date, company_id, created_at, updated_at
+        SELECT id, name, amount, description, date, company_id, COALESCE(payment_method, ''), created_at, updated_at
         FROM expensess
         WHERE id=$1
     `, expenseID).Scan(
@@ -172,6 +174,7 @@ func (h *expenseHandler) GetExpenseByID(c *gin.Context) {
 		&exp.Description,
 		&exp.Date,
 		&companyID,
+		&exp.PaymentMethod,
 		&exp.CreatedAt,
 		&exp.UpdatedAt,
 	)
@@ -253,13 +256,15 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 			amount = COALESCE($2, amount),
 			description = COALESCE($3, description),
 			date = COALESCE($4, date),
+			payment_method = COALESCE(NULLIF($5, ''), payment_method),
 			updated_at = NOW()
-		WHERE id = $5
+		WHERE id = $6
 	`,
 		request.Name,
 		request.Amount,
 		request.Description,
 		request.Date,
+		request.PaymentMethod,
 		expenseID,
 	)
 
@@ -346,7 +351,7 @@ func (h *expenseHandler) GetExpensesByDateRange(c *gin.Context) {
 
 	// Fetch expenses in date range
 	rows, err := h.db.DB.Query(`
-        SELECT id, name, amount, description, date, created_at, updated_at
+        SELECT id, name, amount, description, date, COALESCE(payment_method, ''), created_at, updated_at
         FROM expensess
         WHERE company_id=$1 AND date BETWEEN $2 AND $3
         ORDER BY date DESC
@@ -369,6 +374,7 @@ func (h *expenseHandler) GetExpensesByDateRange(c *gin.Context) {
 			&exp.Amount,
 			&exp.Description,
 			&exp.Date,
+			&exp.PaymentMethod,
 			&exp.CreatedAt,
 			&exp.UpdatedAt,
 		)

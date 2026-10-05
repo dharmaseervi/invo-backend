@@ -9,59 +9,162 @@ import (
 
 // Counting the cash drawer at the end of the day.
 //
-// The app knew what the day's cash billing came to. Whether that much cash was actually
-// in the drawer was a separate question it could not ask — so a short till was found
-// weeks later, if at all, with no way to tell which day it went missing.
+// What a till holds is what was in it this morning, plus what came in, less what went
+// out of it. All three matter: a shop pays its suppliers, refunds customers and buys tea
+// out of the same drawer, and it starts the day with a float that was never takings.
+//
+// Counting receipts alone — which is what this did first — tells a shop it is short by
+// everything it paid out and over by its own float, every day, until somebody stops
+// believing the figure. A number nobody trusts is worse than no number.
 
-// DayClosing is one day's cash, expected against counted.
+// CashLine is one component of the day's drawer, so a difference can be chased rather
+// than stared at.
+type CashLine struct {
+	Label  string  `json:"label"`
+	Amount float64 `json:"amount"`
+	Count  int     `json:"count"`
+}
+
+// DayClosing is one day's cash: what the drawer should hold against what was counted.
 type DayClosing struct {
-	Date     string  `json:"date"`
+	Date string `json:"date"`
+
+	// What was in the drawer before the day started.
+	Opening float64 `json:"opening_cash"`
+	// Cash taken in, and cash paid out of the same drawer.
+	CashIn  float64 `json:"cash_in"`
+	CashOut float64 `json:"cash_out"`
+	// Opening + in - out: what should be there.
 	Expected float64 `json:"expected_cash"`
-	Counted  float64 `json:"counted_cash"`
+	// What was actually there.
+	Counted float64 `json:"counted_cash"`
 	// Counted less expected: negative is short, positive is over.
 	Difference float64 `json:"difference"`
-	Note       string  `json:"note"`
-	Closed     bool    `json:"closed"`
-	// How the expected figure was arrived at, so a difference can be chased rather
-	// than just stared at.
-	PaymentCount int `json:"payment_count"`
+
+	Note   string `json:"note"`
+	Closed bool   `json:"closed"`
+
+	// Where the two sides came from.
+	InBreakdown  []CashLine `json:"in_breakdown"`
+	OutBreakdown []CashLine `json:"out_breakdown"`
 }
 
-// ExpectedCashFor is what the drawer should hold for a date: every cash payment taken
-// that day, less any that were reversed.
+// cashMethods is what counts as cash, in the several spellings the apps have used.
+const cashMethods = `('cash', 'cash payment')`
+
+// drawerFor works out what the drawer should hold for a date, and where each side of it
+// came from.
 //
-// Reversals are left out because the money went back out again — counting them would
-// have the till look short by exactly the amount that was handed back.
-func (s *LedgerService) ExpectedCashFor(companyID int64, date string) (float64, int, error) {
-	var total sql.NullFloat64
-	var count int
+// Reversed payments are left out of what came in, because the money went back out
+// again — counting them would have the till look short by exactly the amount handed
+// back. Expenses count only where they were marked as paid in cash: an expense with no
+// method recorded is an unknown, and treating unknowns as cash would take money out of
+// the drawer figure that may never have left it.
+func (s *LedgerService) drawerFor(companyID int64, date string) (
+	opening, cashIn, cashOut float64,
+	inLines, outLines []CashLine,
+	err error,
+) {
+	// Started empty rather than nil, so a quiet day serialises as [] and not null —
+	// an app decoding a list does not expect the list itself to go missing.
+	inLines, outLines = []CashLine{}, []CashLine{}
 
-	err := s.db.QueryRow(`
-		SELECT COALESCE(SUM(amount), 0), COUNT(*)
-		FROM payments
-		WHERE company_id = $1
-		  AND payment_date = $2::date
-		  AND status <> 'reversed'
-		  AND lower(COALESCE(payment_method, '')) IN ('cash', 'cash payment')
-	`, companyID, date).Scan(&total, &count)
+	// What yesterday's count left behind. The drawer carries over; a shop does not
+	// empty it to the rupee every night.
+	err = s.db.QueryRow(`
+		SELECT COALESCE((
+			SELECT counted_cash FROM day_closings
+			WHERE company_id = $1 AND closing_date < $2::date
+			ORDER BY closing_date DESC LIMIT 1
+		), 0)
+	`, companyID, date).Scan(&opening)
 	if err != nil {
-		return 0, 0, err
+		return
 	}
-	return total.Float64, count, nil
+
+	// An opening float that was set by hand on this day's own closing wins: somebody
+	// counted the drawer this morning and said so.
+	var storedOpening sql.NullFloat64
+	err = s.db.QueryRow(`
+		SELECT opening_cash FROM day_closings
+		WHERE company_id = $1 AND closing_date = $2::date
+	`, companyID, date).Scan(&storedOpening)
+	switch {
+	case err == sql.ErrNoRows:
+		err = nil
+	case err != nil:
+		return
+	case storedOpening.Valid:
+		opening = storedOpening.Float64
+	}
+
+	add := func(lines *[]CashLine, total *float64, label, query string) error {
+		var amount sql.NullFloat64
+		var count int
+		if scanErr := s.db.QueryRow(query, companyID, date).Scan(&amount, &count); scanErr != nil {
+			return scanErr
+		}
+		if count == 0 {
+			return nil
+		}
+		*total += amount.Float64
+		*lines = append(*lines, CashLine{Label: label, Amount: amount.Float64, Count: count})
+		return nil
+	}
+
+	if err = add(&inLines, &cashIn, "Payments received", `
+		SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM payments
+		WHERE company_id = $1 AND payment_date = $2::date
+		  AND status <> 'reversed'
+		  AND lower(COALESCE(payment_method, '')) IN `+cashMethods); err != nil {
+		return
+	}
+
+	if err = add(&outLines, &cashOut, "Paid to suppliers", `
+		SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM supplier_payments
+		WHERE company_id = $1 AND paid_on = $2::date
+		  AND lower(COALESCE(method, '')) IN `+cashMethods); err != nil {
+		return
+	}
+
+	if err = add(&outLines, &cashOut, "Refunded to customers", `
+		SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM refunds
+		WHERE company_id = $1 AND refund_date = $2::date
+		  AND lower(COALESCE(method, '')) IN `+cashMethods); err != nil {
+		return
+	}
+
+	if err = add(&outLines, &cashOut, "Expenses paid in cash", `
+		SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM expensess
+		WHERE company_id = $1 AND date = $2::date
+		  AND lower(COALESCE(payment_method, '')) IN `+cashMethods); err != nil {
+		return
+	}
+
+	return
 }
 
-// ClosingFor reads a day: what is expected, and what was counted if the day has been
-// closed already.
+// ClosingFor reads a day: what the drawer should hold, and what was counted if the day
+// has been closed already.
 func (s *LedgerService) ClosingFor(companyID int64, date string) (DayClosing, error) {
-	expected, count, err := s.ExpectedCashFor(companyID, date)
+	opening, cashIn, cashOut, inLines, outLines, err := s.drawerFor(companyID, date)
 	if err != nil {
 		return DayClosing{}, err
 	}
 
+	expected := money.FromFloat(opening).
+		Add(money.FromFloat(cashIn)).
+		Sub(money.FromFloat(cashOut)).
+		Round()
+
 	out := DayClosing{
 		Date:         date,
-		Expected:     expected,
-		PaymentCount: count,
+		Opening:      opening,
+		CashIn:       cashIn,
+		CashOut:      cashOut,
+		Expected:     expected.Float64(),
+		InBreakdown:  inLines,
+		OutBreakdown: outLines,
 	}
 
 	var note sql.NullString
@@ -87,9 +190,12 @@ func (s *LedgerService) ClosingFor(companyID int64, date string) (DayClosing, er
 
 // Close records what was counted out of the drawer.
 //
-// The expected figure is stored alongside, not just the difference: a payment corrected
-// next week would otherwise silently change what last Tuesday's closing appeared to
-// have found. A closing is a record of what was true when somebody counted.
+// An opening float can be given where it is not simply what yesterday left behind — a
+// shop that tops the drawer up each morning, or one closing its very first day.
+//
+// Every component is stored, not just the difference: a payment corrected next week
+// would otherwise silently change what last Tuesday's closing appeared to have found. A
+// closing is a record of what was true when somebody counted.
 //
 // Closing the same day twice replaces the figure rather than adding a second one —
 // recounting is correcting the first count, not a separate event.
@@ -97,67 +203,82 @@ func (s *LedgerService) Close(
 	companyID, userID int64,
 	date string,
 	counted float64,
+	opening *float64,
 	note string,
 ) (DayClosing, error) {
 	if counted < 0 {
 		return DayClosing{}, LedgerInputError{"A cash count cannot be negative."}
 	}
+	if opening != nil && *opening < 0 {
+		return DayClosing{}, LedgerInputError{"Opening cash cannot be negative."}
+	}
 
-	expected, count, err := s.ExpectedCashFor(companyID, date)
+	carried, cashIn, cashOut, inLines, outLines, err := s.drawerFor(companyID, date)
 	if err != nil {
 		return DayClosing{}, err
 	}
+	if opening != nil {
+		carried = *opening
+	}
 
-	difference := money.FromFloat(counted).Sub(money.FromFloat(expected)).Round()
+	expected := money.FromFloat(carried).
+		Add(money.FromFloat(cashIn)).
+		Sub(money.FromFloat(cashOut)).
+		Round()
+	difference := money.FromFloat(counted).Sub(expected).Round()
 
 	_, err = s.db.Exec(`
 		INSERT INTO day_closings
-			(company_id, user_id, closing_date, expected_cash, counted_cash, difference, note)
-		VALUES ($1, $2, $3::date, $4, $5, $6, $7)
+			(company_id, user_id, closing_date, opening_cash, cash_in, cash_out,
+			 expected_cash, counted_cash, difference, note)
+		VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (company_id, closing_date)
-		DO UPDATE SET expected_cash = EXCLUDED.expected_cash,
+		DO UPDATE SET opening_cash  = EXCLUDED.opening_cash,
+		              cash_in       = EXCLUDED.cash_in,
+		              cash_out      = EXCLUDED.cash_out,
+		              expected_cash = EXCLUDED.expected_cash,
 		              counted_cash  = EXCLUDED.counted_cash,
 		              difference    = EXCLUDED.difference,
 		              note          = EXCLUDED.note,
 		              user_id       = EXCLUDED.user_id,
 		              updated_at    = NOW()
-	`, companyID, userID, date, expected, counted, difference.Float64(), strings.TrimSpace(note))
+	`, companyID, userID, date, carried, cashIn, cashOut,
+		expected.Float64(), counted, difference.Float64(), strings.TrimSpace(note))
 	if err != nil {
 		return DayClosing{}, err
 	}
 
 	return DayClosing{
 		Date:         date,
-		Expected:     expected,
+		Opening:      carried,
+		CashIn:       cashIn,
+		CashOut:      cashOut,
+		Expected:     expected.Float64(),
 		Counted:      counted,
 		Difference:   difference.Float64(),
 		Note:         strings.TrimSpace(note),
 		Closed:       true,
-		PaymentCount: count,
+		InBreakdown:  inLines,
+		OutBreakdown: outLines,
 	}, nil
 }
 
 // RecentClosings is the last few days, for a screen that shows whether the till has been
 // running short.
+//
+// These come from what each closing stored, not from the figures as they stand now: the
+// point of the list is what was found on the day.
 func (s *LedgerService) RecentClosings(companyID int64, limit int) ([]DayClosing, error) {
 	if limit <= 0 || limit > 90 {
 		limit = 30
 	}
 
-	// The payment count is worked out per day rather than left at zero: a list row
-	// claiming a day had no cash payments, when the figures beside it plainly came
-	// from some, is worse than not saying at all.
 	rows, err := s.db.Query(`
-		SELECT TO_CHAR(d.closing_date, 'YYYY-MM-DD'), d.expected_cash, d.counted_cash,
-		       d.difference, COALESCE(d.note, ''),
-		       (SELECT COUNT(*) FROM payments p
-		        WHERE p.company_id = d.company_id
-		          AND p.payment_date = d.closing_date
-		          AND p.status <> 'reversed'
-		          AND lower(COALESCE(p.payment_method, '')) IN ('cash', 'cash payment'))
-		FROM day_closings d
-		WHERE d.company_id = $1
-		ORDER BY d.closing_date DESC
+		SELECT TO_CHAR(closing_date, 'YYYY-MM-DD'), opening_cash, cash_in, cash_out,
+		       expected_cash, counted_cash, difference, COALESCE(note, '')
+		FROM day_closings
+		WHERE company_id = $1
+		ORDER BY closing_date DESC
 		LIMIT $2
 	`, companyID, limit)
 	if err != nil {
@@ -169,7 +290,8 @@ func (s *LedgerService) RecentClosings(companyID int64, limit int) ([]DayClosing
 	for rows.Next() {
 		var c DayClosing
 		if err := rows.Scan(
-			&c.Date, &c.Expected, &c.Counted, &c.Difference, &c.Note, &c.PaymentCount,
+			&c.Date, &c.Opening, &c.CashIn, &c.CashOut,
+			&c.Expected, &c.Counted, &c.Difference, &c.Note,
 		); err != nil {
 			return nil, err
 		}
