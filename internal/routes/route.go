@@ -174,6 +174,13 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/companies/:companyId/ledger/summary", ledgerHandler.GetCompanyLedgerSummaries)
 
 		protected.POST("/payments", paymentHandler.RecordPayment)
+		// Putting a payment right: undo one recorded by mistake, or move it onto the
+		// invoices it should have settled.
+		protected.POST("/payments/:id/reverse", paymentHandler.ReversePayment)
+		protected.PUT("/payments/:id/allocations", paymentHandler.ReallocatePayment)
+		// Money going back to a customer.
+		protected.POST("/refunds", paymentHandler.RecordRefund)
+		protected.GET("/refunds", paymentHandler.GetRefunds)
 		protected.GET("/companies/:companyId/payments", paymentHandler.GetPayments)
 
 		// credit note routes

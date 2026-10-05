@@ -46,9 +46,12 @@ func (s *PaymentService) RecordPaymentTx(
 		allocated = allocated.Add(money.FromFloat(a.Amount))
 	}
 
-	if !allocated.Equal(money.FromFloat(req.Amount)) {
-		return PaymentInputError{"The amounts applied to invoices don't add up to the payment."}
+	// Allocations may be less than the payment — the difference is the advance. More
+	// than the payment is always a mistake.
+	if allocated.GreaterThan(money.FromFloat(req.Amount)) {
+		return PaymentInputError{"That applies more to invoices than the payment is for."}
 	}
+	unapplied := money.FromFloat(req.Amount).Sub(allocated).Round()
 
 	// 3️⃣ Insert payment
 	var paymentID int64
@@ -60,9 +63,10 @@ func (s *PaymentService) RecordPaymentTx(
 			payment_method,
 			reference,
 			notes,
-			payment_date
+			payment_date,
+			unapplied_amount
 		)
-		VALUES ($1,$2,$3,$4,$5,$6, COALESCE($7::date, CURRENT_DATE))
+		VALUES ($1,$2,$3,$4,$5,$6, COALESCE($7::date, CURRENT_DATE), $8)
 		RETURNING id
 	`,
 		companyID,
@@ -72,6 +76,7 @@ func (s *PaymentService) RecordPaymentTx(
 		req.Reference,
 		req.Notes,
 		req.PaymentDate,
+		unapplied.Float64(),
 	).Scan(&paymentID)
 
 	if err != nil {
@@ -140,6 +145,15 @@ func (s *PaymentService) RecordPaymentTx(
 	}
 
 	// 5️⃣ Ledger entry (ONE credit entry)
+	//
+	// The whole payment is credited, including any advance: the customer has handed
+	// over that money whether or not an invoice exists to put it against, and their
+	// balance should say so the moment they do.
+	narration := "Payment received"
+	if unapplied.GreaterThan(money.Zero()) {
+		narration = "Payment received (" + unapplied.String() + " on account)"
+	}
+
 	return s.ledger.AddEntryTx(
 		tx,
 		companyID,
@@ -148,7 +162,7 @@ func (s *PaymentService) RecordPaymentTx(
 		paymentID,
 		0,
 		req.Amount,
-		"Payment received",
+		narration,
 	)
 }
 
@@ -206,10 +220,13 @@ func (s *PaymentService) autoAllocateFIFO(
 		remaining = remaining.Sub(applied)
 	}
 
-	if remaining.GreaterThan(money.Zero()) {
-		return nil, PaymentInputError{"That's more than the client owes."}
-	}
-
+	// Anything left over is an advance, not a mistake.
+	//
+	// This used to refuse the payment outright, which made a deposit impossible to
+	// record: a customer paying ₹10,000 up front against nothing, or ₹500 more than
+	// their invoices because that is the note they had, simply could not be entered.
+	// The remainder stays unallocated and sits on their ledger as credit, which the
+	// next invoice draws on.
 	return allocations, nil
 }
 
