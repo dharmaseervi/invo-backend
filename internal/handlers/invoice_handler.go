@@ -146,7 +146,7 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 	err = h.db.DB.QueryRow(`
 		SELECT EXISTS (
 			SELECT 1 FROM clients
-			WHERE id = $1 AND user_id = $2 AND company_id = $3
+			WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
 		)
 	`, req.ClientID, userID, req.CompanyID).Scan(&clientExists)
 
@@ -161,7 +161,7 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		err = h.db.DB.QueryRow(`
 			SELECT EXISTS (
 				SELECT 1 FROM items
-				WHERE id = $1 AND user_id = $2 AND company_id = $3
+				WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
 			)
 		`, item.ItemID, userID, req.CompanyID).Scan(&itemExists)
 
@@ -408,7 +408,7 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 	err = h.db.DB.QueryRow(`
 		SELECT company_id, status
 		FROM invoices
-		WHERE id = $1 AND user_id = $2
+		WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, invoiceID, userID).Scan(&companyID, &status)
 
 	if err == sql.ErrNoRows {
@@ -432,7 +432,7 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 	err = h.db.DB.QueryRow(`
 		SELECT EXISTS (
 			SELECT 1 FROM clients
-			WHERE id = $1 AND user_id = $2 AND company_id = $3
+			WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
 		)
 	`, req.ClientID, userID, companyID).Scan(&clientExists)
 
@@ -447,7 +447,7 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 		err = h.db.DB.QueryRow(`
 			SELECT EXISTS (
 				SELECT 1 FROM items
-				WHERE id = $1 AND user_id = $2 AND company_id = $3
+				WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
 			)
 		`, item.ItemID, userID, companyID).Scan(&itemExists)
 
@@ -622,6 +622,28 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 
 	companyIDStr := c.Query("company_id")
 	clientIDStr := c.Query("client_id")
+
+	// Asking for a shop you do not work in is refused, not answered with an empty
+	// list. The rows were already scoped, so nothing leaked either way — but "no
+	// invoices" and "not your shop" are different answers, and only one of them is
+	// true. It also means access ending is something the app can see straight away
+	// rather than reading as a business with nothing in it.
+	if companyIDStr != "" {
+		companyID, err := strconv.ParseInt(companyIDStr, 10, 64)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid company_id"})
+			return
+		}
+		member, err := companyBelongsToUser(h.db.DB, companyID, userID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+			return
+		}
+		if !member {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized company access"})
+			return
+		}
+	}
 	search := strings.TrimSpace(c.Query("search"))
 	// One of: draft, issued, partial, paid, cancelled, overdue, owed. "overdue" and
 	// "owed" are not stored statuses but the questions people actually ask of a list —
@@ -662,7 +684,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			COALESCE(c.name, '')
 		FROM invoices i
 		JOIN clients c ON c.id = i.client_id
-		WHERE i.user_id = $1
+		WHERE i.company_id IN (SELECT company_id FROM companies_for_user($1))
 	`
 
 	args := []interface{}{userID}
@@ -828,7 +850,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 			(CURRENT_DATE > i.due_date AND i.status IN ('issued', 'partial')) AS is_overdue
 		FROM invoices i
 		JOIN clients c ON c.id = i.client_id
-		WHERE i.id = $1 AND i.user_id = $2
+		WHERE i.id = $1 AND i.company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, invoiceID, userID).Scan(
 		&id,
 		&companyID,
@@ -1072,7 +1094,7 @@ func (h *InvoiceHandler) GetInvoicesByClientID(c *gin.Context) {
 	err = h.db.DB.QueryRow(`
 		SELECT company_id
 		FROM clients
-		WHERE id = $1 AND user_id = $2
+		WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, clientID, userID).Scan(&companyID)
 
 	if err != nil {
@@ -1161,7 +1183,7 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	err = tx.QueryRow(`
         SELECT status, total, client_id, company_id, invoice_number
         FROM invoices
-        WHERE id = $1 AND user_id = $2
+        WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
         FOR UPDATE
     `, invoiceID, userID).Scan(
 		&status, &total, &clientID, &companyID, &number,
@@ -1375,7 +1397,7 @@ func (h *InvoiceHandler) DeleteInvoice(c *gin.Context) {
 
 	var status string
 	err = tx.QueryRow(`
-		SELECT status FROM invoices WHERE id = $1 AND user_id = $2
+		SELECT status FROM invoices WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, invoiceID, userID).Scan(&status)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Invoice not found"})
@@ -1464,7 +1486,7 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 	// back twice.
 	err = tx.QueryRow(`
 		SELECT status, company_id, client_id, invoice_number, total
-		FROM invoices WHERE id = $1 AND user_id = $2
+		FROM invoices WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 		FOR UPDATE
 	`, invoiceID, userID).Scan(&status, &companyID, &clientID, &number, &total)
 	if err == sql.ErrNoRows {

@@ -43,7 +43,7 @@ func (h *InvoiceHandler) GetInvoiceSummary(c *gin.Context) {
 
 	args := []interface{}{userID}
 	argPos := 2
-	where := " WHERE i.user_id = $1"
+	where := " WHERE i.company_id IN (SELECT company_id FROM companies_for_user($1))"
 
 	if v := c.Query("company_id"); v != "" {
 		if companyID, err := strconv.Atoi(v); err == nil {

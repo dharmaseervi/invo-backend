@@ -85,13 +85,13 @@ func (h *DashboardHandler) GetDashboard(c *gin.Context) {
 
 	g.Go(func() error {
 		return h.db.DB.QueryRowContext(ctx, `
-			SELECT COUNT(*) FROM clients WHERE company_id = $1 AND user_id = $2
+			SELECT COUNT(*) FROM clients WHERE company_id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 		`, companyID, userID).Scan(&resp.Counts.Clients)
 	})
 
 	g.Go(func() error {
 		return h.db.DB.QueryRowContext(ctx, `
-			SELECT COUNT(*) FROM items WHERE company_id = $1 AND user_id = $2
+			SELECT COUNT(*) FROM items WHERE company_id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 		`, companyID, userID).Scan(&resp.Counts.Items)
 	})
 

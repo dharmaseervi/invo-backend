@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS companies_for_user(INTEGER);

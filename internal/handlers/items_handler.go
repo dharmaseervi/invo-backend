@@ -65,7 +65,7 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 	err := h.db.DB.QueryRow(`
 		SELECT EXISTS(
 			SELECT 1 FROM categories
-			WHERE id=$1 AND user_id=$2
+			WHERE id=$1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 		)
 	`, request.CategoryID, userID).Scan(&categoryExists)
 
@@ -269,7 +269,7 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 	// of why is exactly the gap this closes.
 	var previousQuantity, companyID int
 	_ = h.db.DB.QueryRow(`
-		SELECT quantity, company_id FROM items WHERE id = $1 AND user_id = $2
+		SELECT quantity, company_id FROM items WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, itemID, userID).Scan(&previousQuantity, &companyID)
 
 	// CreateItem validates this; UpdateItem did not, so an item could be re-pointed at
@@ -279,7 +279,7 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 		if err := h.db.DB.QueryRow(`
 			SELECT EXISTS(
 				SELECT 1 FROM categories
-				WHERE id = $1 AND user_id = $2 AND company_id = $3
+				WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
 			)
 		`, *request.CategoryID, userID, companyID).Scan(&categoryOK); err != nil || !categoryOK {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Invalid or unauthorized category"})
@@ -292,7 +292,7 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 			name = $1, category_id = $2, sku = $3, unit = $4,
 			description = $5, cost_price = $6, price = $7, quantity = $8,
 			low_stock_alert = $9, tax_rate = $10, hsn_code = $11, updated_at = NOW()
-		WHERE id = $12 AND user_id = $13
+		WHERE id = $12 AND company_id IN (SELECT company_id FROM companies_for_user($13))
 	`,
 		request.Name,
 		request.CategoryID,
@@ -352,7 +352,7 @@ func (h *itemHandler) GetItemByID(c *gin.Context) {
     COALESCE(low_stock_alert, 0), COALESCE(tax_rate, 0),
     COALESCE(hsn_code, ''), company_id, user_id, created_at, updated_at
 FROM items
-WHERE id = $1 AND user_id = $2
+WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, itemID, userID).Scan(
 		&item.ID, &item.Name, &item.CategoryID,
 		&item.SKU, &item.Unit, &item.Description,
@@ -410,7 +410,7 @@ func (h *itemHandler) RestockItem(c *gin.Context) {
 	var previousQuantity, newQuantity, companyID int
 	err = tx.QueryRow(`
 		UPDATE items SET quantity = quantity + $1, updated_at = NOW()
-		WHERE id = $2 AND user_id = $3
+		WHERE id = $2 AND company_id IN (SELECT company_id FROM companies_for_user($3))
 		RETURNING quantity - $1, quantity, company_id
 	`, request.Quantity, itemID, userID).Scan(&previousQuantity, &newQuantity, &companyID)
 	if err == sql.ErrNoRows {
@@ -453,7 +453,7 @@ func (h *itemHandler) GetItemMovements(c *gin.Context) {
 
 	var owned bool
 	h.db.DB.QueryRow(`
-		SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND user_id = $2)
+		SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)))
 	`, itemID, userID).Scan(&owned)
 	if !owned {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})

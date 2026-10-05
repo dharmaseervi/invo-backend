@@ -184,7 +184,7 @@ func (h *clientHandler) UpdateClient(c *gin.Context) {
 		SELECT EXISTS(
 			SELECT 1 FROM clients cl
 			JOIN companies co ON co.id = cl.company_id
-			WHERE cl.id = $1 AND co.user_id = $2
+			WHERE cl.id = $1 AND co.id IN (SELECT company_id FROM companies_for_user($2))
 		)
 	`, clientID, userID).Scan(&owned); err != nil || !owned {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
@@ -229,7 +229,7 @@ func (h *clientHandler) DeleteClient(c *gin.Context) {
 		SELECT EXISTS(
 			SELECT 1 FROM clients cl
 			JOIN companies co ON co.id = cl.company_id
-			WHERE cl.id = $1 AND co.user_id = $2
+			WHERE cl.id = $1 AND co.id IN (SELECT company_id FROM companies_for_user($2))
 		)
 	`, clientID, userID).Scan(&owned); err != nil || !owned {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})

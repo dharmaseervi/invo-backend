@@ -47,7 +47,7 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 
 	var clientExists bool
 	err = h.db.DB.QueryRow(`
-		SELECT EXISTS (SELECT 1 FROM clients WHERE id = $1 AND user_id = $2 AND company_id = $3)
+		SELECT EXISTS (SELECT 1 FROM clients WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3)
 	`, req.ClientID, userID, req.CompanyID).Scan(&clientExists)
 	if err != nil || !clientExists {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Invalid or unauthorized client"})
@@ -60,7 +60,7 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 		var itemExists bool
 		err = h.db.DB.QueryRow(`
 			SELECT EXISTS (
-				SELECT 1 FROM items WHERE id = $1 AND user_id = $2 AND company_id = $3
+				SELECT 1 FROM items WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
 			)
 		`, item.ItemID, userID, req.CompanyID).Scan(&itemExists)
 		if err != nil || !itemExists {
@@ -190,7 +190,7 @@ func (h *EstimateHandler) GetEstimates(c *gin.Context) {
 			COALESCE(c.name, '')
 		FROM estimates e
 		JOIN clients c ON c.id = e.client_id
-		WHERE e.user_id = $1
+		WHERE e.company_id IN (SELECT company_id FROM companies_for_user($1))
 	`
 	args := []interface{}{userID}
 	argPos := 2
@@ -293,7 +293,7 @@ func (h *EstimateHandler) GetEstimateByID(c *gin.Context) {
 			e.created_at, c.name
 		FROM estimates e
 		JOIN clients c ON c.id = e.client_id
-		WHERE e.id = $1 AND e.user_id = $2
+		WHERE e.id = $1 AND e.company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, estimateID, userID).Scan(
 		&id, &clientID, &estimateNumber, &estimateDate, &expiryDate,
 		&subtotal, &tax, &discount, &total, &status, &convertedInvoiceID,
@@ -387,7 +387,7 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 		companyID int
 		status    string
 	)
-	err = h.db.DB.QueryRow(`SELECT company_id, status FROM estimates WHERE id = $1 AND user_id = $2`, estimateID, userID).Scan(&companyID, &status)
+	err = h.db.DB.QueryRow(`SELECT company_id, status FROM estimates WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))`, estimateID, userID).Scan(&companyID, &status)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Estimate not found"})
 		return
@@ -403,7 +403,7 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 
 	var clientExists bool
 	err = h.db.DB.QueryRow(`
-		SELECT EXISTS (SELECT 1 FROM clients WHERE id = $1 AND user_id = $2 AND company_id = $3)
+		SELECT EXISTS (SELECT 1 FROM clients WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3)
 	`, req.ClientID, userID, companyID).Scan(&clientExists)
 	if err != nil || !clientExists {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Invalid or unauthorized client"})
@@ -508,7 +508,7 @@ func (h *EstimateHandler) UpdateEstimateStatus(c *gin.Context) {
 
 	result, err := h.db.DB.Exec(`
 		UPDATE estimates SET status = $1, updated_at = NOW()
-		WHERE id = $2 AND user_id = $3 AND status != 'converted'
+		WHERE id = $2 AND company_id IN (SELECT company_id FROM companies_for_user($3)) AND status != 'converted'
 	`, req.Status, estimateID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update status"})
@@ -538,7 +538,7 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 		discount            float64
 	)
 	err = h.db.DB.QueryRow(`
-		SELECT company_id, client_id, status, discount FROM estimates WHERE id = $1 AND user_id = $2
+		SELECT company_id, client_id, status, discount FROM estimates WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, estimateID, userID).Scan(&companyID, &clientID, &status, &discount)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Estimate not found"})
@@ -624,7 +624,7 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 	// 'converted'.
 	var lockedStatus string
 	if err := tx.QueryRow(`
-		SELECT status FROM estimates WHERE id = $1 AND user_id = $2 FOR UPDATE
+		SELECT status FROM estimates WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) FOR UPDATE
 	`, estimateID, userID).Scan(&lockedStatus); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch estimate"})
 		return
@@ -770,7 +770,7 @@ func (h *EstimateHandler) GetEstimatePDF(c *gin.Context) {
 
 	var owned bool
 	err = h.db.DB.QueryRow(`
-		SELECT EXISTS (SELECT 1 FROM estimates WHERE id = $1 AND user_id = $2)
+		SELECT EXISTS (SELECT 1 FROM estimates WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)))
 	`, estimateID, userID).Scan(&owned)
 	if err != nil || !owned {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})

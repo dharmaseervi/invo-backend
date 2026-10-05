@@ -149,7 +149,7 @@ func (h *CreditNoteHandler) GetByID(c *gin.Context) {
 		SELECT cn.company_id
 		FROM credit_notes cn
 		JOIN companies c ON c.id = cn.company_id
-		WHERE cn.id = $1 AND c.user_id = $2
+		WHERE cn.id = $1 AND c.id IN (SELECT company_id FROM companies_for_user($2))
 	`, cnID, userID).Scan(&companyID)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "credit note not found"})

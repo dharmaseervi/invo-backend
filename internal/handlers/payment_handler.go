@@ -50,7 +50,7 @@ func (h *PaymentHandler) RecordPayment(c *gin.Context) {
 		SELECT c.id
 		FROM clients cl
 		JOIN companies c ON c.id = cl.company_id
-		WHERE cl.id = $1 AND c.user_id = $2
+		WHERE cl.id = $1 AND c.id IN (SELECT company_id FROM companies_for_user($2))
 	`, req.ClientID, userID).Scan(&companyID)
 
 	if err != nil {

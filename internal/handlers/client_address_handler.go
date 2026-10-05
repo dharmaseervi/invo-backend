@@ -45,7 +45,7 @@ func (h *ClientAddressHandler) SaveClientAddress(c *gin.Context) {
 			$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
 		WHERE EXISTS (
 			SELECT 1 FROM clients
-			WHERE id = $1 AND user_id = $13
+			WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($13))
 		)
 		ON CONFLICT (client_id, type)
 		DO UPDATE SET
@@ -106,7 +106,7 @@ func (h *ClientAddressHandler) GetClientAddress(c *gin.Context) {
 		WHERE client_id = $1 AND type = $2
 		  AND EXISTS (
 			  SELECT 1 FROM clients
-			  WHERE id = $1 AND user_id = $3
+			  WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($3))
 		  )
 	`, clientID, addrType, userID).Scan(
 		&address.AddressType,

@@ -50,7 +50,7 @@ func (h *InvoicePDFHandler) GetInvoicePDF(c *gin.Context) {
 			SELECT 1
 			FROM invoices i
 			JOIN companies c ON c.id = i.company_id
-			WHERE i.id = $1 AND c.user_id = $2
+			WHERE i.id = $1 AND c.id IN (SELECT company_id FROM companies_for_user($2))
 		)
 	`, invoiceID, userID).Scan(&authorized)
 
