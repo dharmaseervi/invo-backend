@@ -145,6 +145,7 @@ var routePermissions = map[string]Permission{
 	// What the business earned and is owed.
 	"GET /api/v1/ledger/:clientId":                      PermSeeReports,
 	"GET /api/v1/ledger/:clientId/summary":              PermSeeReports,
+	"GET /api/v1/ledger/:clientId/statement.pdf":        PermSeeReports,
 	"GET /api/v1/companies/:companyId/ledger":           PermSeeReports,
 	"GET /api/v1/companies/:companyId/ledger/summary":   PermSeeReports,
 	"GET /api/v1/companies/:companyId/expenses":         PermSeeReports,
@@ -259,20 +260,21 @@ var recordCompany = map[string]struct {
 	param string
 	query string
 }{
-	"/api/v1/invoices/:id":                 {"id", `SELECT company_id FROM invoices WHERE id = $1`},
-	"/api/v1/invoices/:id/cancel":          {"id", `SELECT company_id FROM invoices WHERE id = $1`},
-	"/api/v1/expenses/:id":                 {"id", `SELECT company_id FROM expensess WHERE id = $1`},
-	"/api/v1/payments/:id/reverse":         {"id", `SELECT company_id FROM payments WHERE id = $1`},
-	"/api/v1/payments/:id/allocations":     {"id", `SELECT company_id FROM payments WHERE id = $1`},
-	"/api/v1/clients/:clientId":            {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
-	"/api/v1/ledger/:clientId":             {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
-	"/api/v1/ledger/:clientId/summary":     {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
-	"/api/v1/items/:itemId":                {"itemId", `SELECT company_id FROM items WHERE id = $1`},
-	"/api/v1/item/:itemId/restock":         {"itemId", `SELECT company_id FROM items WHERE id = $1`},
-	"/api/v1/item/:itemId/movements":       {"itemId", `SELECT company_id FROM items WHERE id = $1`},
-	"/api/v1/purchase-bills/:id":           {"id", `SELECT company_id FROM purchase_bills WHERE id = $1`},
-	"/api/v1/suppliers/:id/ledger":         {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
-	"/api/v1/suppliers/:id/ledger/summary": {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/invoices/:id":                   {"id", `SELECT company_id FROM invoices WHERE id = $1`},
+	"/api/v1/invoices/:id/cancel":            {"id", `SELECT company_id FROM invoices WHERE id = $1`},
+	"/api/v1/expenses/:id":                   {"id", `SELECT company_id FROM expensess WHERE id = $1`},
+	"/api/v1/payments/:id/reverse":           {"id", `SELECT company_id FROM payments WHERE id = $1`},
+	"/api/v1/payments/:id/allocations":       {"id", `SELECT company_id FROM payments WHERE id = $1`},
+	"/api/v1/clients/:clientId":              {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
+	"/api/v1/ledger/:clientId":               {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
+	"/api/v1/ledger/:clientId/summary":       {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
+	"/api/v1/ledger/:clientId/statement.pdf": {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
+	"/api/v1/items/:itemId":                  {"itemId", `SELECT company_id FROM items WHERE id = $1`},
+	"/api/v1/item/:itemId/restock":           {"itemId", `SELECT company_id FROM items WHERE id = $1`},
+	"/api/v1/item/:itemId/movements":         {"itemId", `SELECT company_id FROM items WHERE id = $1`},
+	"/api/v1/purchase-bills/:id":             {"id", `SELECT company_id FROM purchase_bills WHERE id = $1`},
+	"/api/v1/suppliers/:id/ledger":           {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/suppliers/:id/ledger/summary":   {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
 }
 
 // companyForRequest works out which business a request concerns.

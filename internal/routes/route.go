@@ -180,6 +180,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// Totals over a customer's whole history, so the rows can be paged without the
 		// figures becoming the figures of a page.
 		protected.GET("/ledger/:clientId/summary", ledgerHandler.GetClientLedgerSummary)
+		// The statement a shop sends its customer, as a PDF.
+		protected.GET("/ledger/:clientId/statement.pdf", ledgerHandler.GetClientStatementPDF)
 		protected.GET("/companies/:companyId/ledger", ledgerHandler.GetCompanyLedger)
 		// One row per customer with history: what a ledger list screen actually shows.
 		protected.GET("/companies/:companyId/ledger/summary", ledgerHandler.GetCompanyLedgerSummaries)
