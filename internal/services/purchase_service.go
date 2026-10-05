@@ -74,15 +74,20 @@ func (s *PurchaseService) RecordBill(
 	}
 	defer tx.Rollback()
 
+	// The supplier row is locked, not merely checked for existence. Two bills for the
+	// same supplier arriving together both read whatever the shop has paid in advance,
+	// and without the lock both would spend it. The lock sits on the supplier because
+	// that is what the balance belongs to — the same reason a customer's ledger is
+	// guarded by the client row.
 	var supplierOK bool
-	if err := tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM suppliers WHERE id = $1 AND company_id = $2)`,
+	err = tx.QueryRow(
+		`SELECT TRUE FROM suppliers WHERE id = $1 AND company_id = $2 FOR UPDATE`,
 		req.SupplierID, companyID,
-	).Scan(&supplierOK); err != nil {
-		return 0, err
-	}
-	if !supplierOK {
+	).Scan(&supplierOK)
+	if err == sql.ErrNoRows {
 		return 0, PurchaseInputError{"That supplier isn't one of this company's."}
+	} else if err != nil {
+		return 0, err
 	}
 
 	// Totals first, so the bill row is written once with the right figures.
@@ -131,6 +136,26 @@ func (s *PurchaseService) RecordBill(
 	if paid.GreaterThan(total) {
 		return 0, PurchaseInputError{"That's more than the bill comes to."}
 	}
+
+	// Money already paid to this supplier that no bill has claimed — an advance, or a
+	// deposit against stock that had not arrived yet. It is spent on this bill now.
+	//
+	// Without this, two honest figures disagree: the statement shows the shop in credit
+	// while the bill list shows this same bill unpaid, and nobody can say which to
+	// believe. Settling the advance here keeps what each bill owes and what the supplier
+	// is owed overall as two views of one number.
+	credit, err := supplierCredit(tx, companyID, req.SupplierID)
+	if err != nil {
+		return 0, err
+	}
+	if credit.GreaterThan(money.Zero()) {
+		applied := credit
+		if applied.GreaterThan(total.Sub(paid)) {
+			applied = total.Sub(paid).Round()
+		}
+		paid = paid.Add(applied).Round()
+	}
+
 	remaining := total.Sub(paid).Round()
 
 	status := "unpaid"
@@ -202,7 +227,11 @@ func (s *PurchaseService) RecordBill(
 
 	// Anything paid at the counter is recorded as a payment to the supplier, so the
 	// payment history and the bill's balance cannot disagree.
-	if paid.GreaterThan(money.Zero()) {
+	//
+	// Only the money handed over now, never the advance applied above: that was
+	// recorded as a payment when it was made, and writing it again would have the
+	// statement claim the shop paid twice.
+	if paidNow := money.FromFloat(req.PaidAmount).Round(); paidNow.GreaterThan(money.Zero()) {
 		method := strings.TrimSpace(req.PaidMethod)
 		if method == "" {
 			method = "cash"
@@ -210,7 +239,7 @@ func (s *PurchaseService) RecordBill(
 		if _, err := tx.Exec(`
 			INSERT INTO supplier_payments (company_id, supplier_id, bill_id, amount, method, paid_on)
 			VALUES ($1,$2,$3,$4,$5, COALESCE($6::date, CURRENT_DATE))
-		`, companyID, req.SupplierID, billID, paid.Float64(), method, req.BillDate); err != nil {
+		`, companyID, req.SupplierID, billID, paidNow.Float64(), method, req.BillDate); err != nil {
 			return 0, err
 		}
 	}
@@ -250,76 +279,52 @@ func (s *PurchaseService) PaySupplier(
 	}
 	defer tx.Rollback()
 
+	// The supplier row is locked, not merely checked for existence. Two bills for the
+	// same supplier arriving together both read whatever the shop has paid in advance,
+	// and without the lock both would spend it. The lock sits on the supplier because
+	// that is what the balance belongs to — the same reason a customer's ledger is
+	// guarded by the client row.
 	var supplierOK bool
-	if err := tx.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM suppliers WHERE id = $1 AND company_id = $2)`,
+	err = tx.QueryRow(
+		`SELECT TRUE FROM suppliers WHERE id = $1 AND company_id = $2 FOR UPDATE`,
 		req.SupplierID, companyID,
-	).Scan(&supplierOK); err != nil {
-		return 0, err
-	}
-	if !supplierOK {
+	).Scan(&supplierOK)
+	if err == sql.ErrNoRows {
 		return 0, PurchaseInputError{"That supplier isn't one of this company's."}
+	} else if err != nil {
+		return 0, err
 	}
 
 	remaining := money.FromFloat(req.Amount).Round()
 
-	// The bills to settle: the one named, or every unpaid one oldest first. Locked, so
-	// two payments at once cannot both read the same balance and overpay it.
-	query := `
-		SELECT id, remaining_amount FROM purchase_bills
-		WHERE company_id = $1 AND supplier_id = $2 AND status IN ('unpaid', 'partial')
-	`
-	args := []interface{}{companyID, req.SupplierID}
-	if req.BillID != nil {
-		query += " AND id = $3"
-		args = append(args, *req.BillID)
-	}
-	query += " ORDER BY bill_date ASC, id ASC FOR UPDATE"
-
-	rows, err := tx.Query(query, args...)
+	// The bills to settle: the one named, or every unpaid one oldest first.
+	dues, err := openSupplierBills(tx, companyID, req.SupplierID, req.BillID, nil)
 	if err != nil {
 		return 0, err
 	}
-	type due struct {
-		id        int64
-		remaining money.Amount
-	}
-	var dues []due
-	for rows.Next() {
-		var d due
-		var amount float64
-		if err := rows.Scan(&d.id, &amount); err != nil {
-			rows.Close()
-			return 0, err
-		}
-		d.remaining = money.FromFloat(amount)
-		dues = append(dues, d)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return 0, err
-	}
-
 	if req.BillID != nil && len(dues) == 0 {
 		return 0, PurchaseInputError{"That bill isn't this supplier's, or it is already settled."}
 	}
 
-	for _, d := range dues {
-		if !remaining.GreaterThan(money.Zero()) {
-			break
-		}
-		applied := money.Min(remaining, d.remaining)
-		if _, err := tx.Exec(`
-			UPDATE purchase_bills
-			SET paid_amount = paid_amount + $1,
-			    remaining_amount = remaining_amount - $1,
-			    status = CASE WHEN remaining_amount - $1 <= 0 THEN 'paid' ELSE 'partial' END,
-			    updated_at = NOW()
-			WHERE id = $2
-		`, applied.Float64(), d.id); err != nil {
+	remaining, err = settleSupplierBills(tx, dues, remaining)
+	if err != nil {
+		return 0, err
+	}
+
+	// More than the named bill came to: the rest goes to this supplier's other open
+	// bills, oldest first, instead of being set aside as credit.
+	//
+	// Left as credit it would read as a contradiction — the shop holding an advance
+	// while a bill of theirs still showed unpaid — and the two figures a shopkeeper
+	// checks, what each bill owes and what the supplier is owed, would stop agreeing.
+	if req.BillID != nil && remaining.GreaterThan(money.Zero()) {
+		others, err := openSupplierBills(tx, companyID, req.SupplierID, nil, req.BillID)
+		if err != nil {
 			return 0, err
 		}
-		remaining = remaining.Sub(applied)
+		if remaining, err = settleSupplierBills(tx, others, remaining); err != nil {
+			return 0, err
+		}
 	}
 
 	// Anything left over is an advance to the supplier, recorded without a bill rather
@@ -354,4 +359,106 @@ func isDuplicateBillNumber(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "duplicate key") &&
 		strings.Contains(msg, "purchase_bills_number_per_supplier")
+}
+
+// supplierCredit is money paid to a supplier that no bill has claimed.
+//
+// Everything paid, less everything the bills account for. It is a derived figure rather
+// than a stored balance: the advance is already recorded as a payment, and a second
+// place to keep the same fact is a second place for it to go wrong.
+func supplierCredit(tx *sql.Tx, companyID, supplierID int64) (money.Amount, error) {
+	var paid, applied float64
+	err := tx.QueryRow(`
+		SELECT
+			COALESCE((
+				SELECT SUM(amount) FROM supplier_payments
+				WHERE company_id = $1 AND supplier_id = $2
+			), 0),
+			COALESCE((
+				SELECT SUM(paid_amount) FROM purchase_bills
+				WHERE company_id = $1 AND supplier_id = $2 AND status <> 'cancelled'
+			), 0)
+	`, companyID, supplierID).Scan(&paid, &applied)
+	if err != nil {
+		return money.Zero(), err
+	}
+	return money.FromFloat(paid).Sub(money.FromFloat(applied)).Round(), nil
+}
+
+// supplierDue is one open bill and what is still owed on it.
+type supplierDue struct {
+	id        int64
+	remaining money.Amount
+}
+
+// openSupplierBills reads a supplier's unsettled bills, oldest first, and locks them.
+//
+// Locked because two payments arriving together would otherwise both read the same
+// balance and both pay it off, leaving the supplier overpaid on paper.
+//
+// onlyBill restricts it to one bill; excludeBill leaves one out, for spreading what is
+// left of a payment over everything else.
+func openSupplierBills(
+	tx *sql.Tx,
+	companyID, supplierID int64,
+	onlyBill, excludeBill *int64,
+) ([]supplierDue, error) {
+	query := `
+		SELECT id, remaining_amount FROM purchase_bills
+		WHERE company_id = $1 AND supplier_id = $2 AND status IN ('unpaid', 'partial')
+	`
+	args := []interface{}{companyID, supplierID}
+	if onlyBill != nil {
+		query += " AND id = $3"
+		args = append(args, *onlyBill)
+	} else if excludeBill != nil {
+		query += " AND id <> $3"
+		args = append(args, *excludeBill)
+	}
+	query += " ORDER BY bill_date ASC, id ASC FOR UPDATE"
+
+	rows, err := tx.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var dues []supplierDue
+	for rows.Next() {
+		var d supplierDue
+		var amount float64
+		if err := rows.Scan(&d.id, &amount); err != nil {
+			return nil, err
+		}
+		d.remaining = money.FromFloat(amount)
+		dues = append(dues, d)
+	}
+	return dues, rows.Err()
+}
+
+// settleSupplierBills pays off bills in the order given and returns what is left of the
+// money. Anything returned is an advance the supplier is holding.
+func settleSupplierBills(
+	tx *sql.Tx,
+	dues []supplierDue,
+	amount money.Amount,
+) (money.Amount, error) {
+	for _, d := range dues {
+		if !amount.GreaterThan(money.Zero()) {
+			break
+		}
+		applied := money.Min(amount, d.remaining)
+		if _, err := tx.Exec(`
+			UPDATE purchase_bills
+			SET paid_amount = paid_amount + $1,
+			    remaining_amount = remaining_amount - $1,
+			    status = CASE WHEN remaining_amount - $1 <= 0 THEN 'paid' ELSE 'partial' END,
+			    updated_at = NOW()
+			WHERE id = $2
+		`, applied.Float64(), d.id); err != nil {
+			return amount, err
+		}
+		amount = amount.Sub(applied)
+	}
+	return amount, nil
 }

@@ -125,7 +125,17 @@ func (h *PurchaseHandler) GetSuppliers(c *gin.Context) {
 		       COALESCE((
 		           SELECT COUNT(*) FROM purchase_bills b
 		           WHERE b.supplier_id = s.id AND b.status IN ('unpaid', 'partial')
-		       ), 0)
+		       ), 0),
+		       -- Money paid to them that no bill has claimed: an advance they are
+		       -- holding. Shown beside what is owed so the list and the statement say
+		       -- the same thing — a supplier can be owed nothing and still be sitting
+		       -- on a deposit, and a figure of zero alone hides that.
+		       GREATEST(COALESCE((
+		           SELECT SUM(p.amount) FROM supplier_payments p WHERE p.supplier_id = s.id
+		       ), 0) - COALESCE((
+		           SELECT SUM(b.paid_amount) FROM purchase_bills b
+		           WHERE b.supplier_id = s.id AND b.status <> 'cancelled'
+		       ), 0), 0)
 		FROM suppliers s
 		WHERE s.company_id = $1
 	`
@@ -149,27 +159,29 @@ func (h *PurchaseHandler) GetSuppliers(c *gin.Context) {
 	defer rows.Close()
 
 	out := []gin.H{}
-	var totalDue float64
+	var totalDue, totalAdvance float64
 	for rows.Next() {
 		var (
 			id                        int64
 			name, phone, email, gstin string
 			city, state               string
-			due                       float64
+			due, advance              float64
 			openBills                 int
 		)
-		if err := rows.Scan(&id, &name, &phone, &email, &gstin, &city, &state, &due, &openBills); err != nil {
+		if err := rows.Scan(&id, &name, &phone, &email, &gstin, &city, &state, &due, &openBills, &advance); err != nil {
 			log.Println("failed to scan supplier:", err)
 			continue
 		}
 		totalDue += due
+		totalAdvance += advance
 		out = append(out, gin.H{
 			"id": id, "name": name, "phone": phone, "email": email, "gstin": gstin,
 			"city": city, "state": state, "due": due, "open_bills": openBills,
+			"advance": advance,
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"data": out, "total_due": totalDue})
+	c.JSON(http.StatusOK, gin.H{"data": out, "total_due": totalDue, "total_advance": totalAdvance})
 }
 
 // MARK: - Bills
@@ -383,4 +395,70 @@ func (h *PurchaseHandler) PaySupplier(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"message": "Payment recorded", "payment_id": id})
+}
+
+// MARK: - Supplier statement
+
+// SupplierLedger returns one supplier's statement: their bills, the payments made to
+// them, and the running balance.
+//
+// GET /api/v1/suppliers/:id/ledger?company_id=1&limit=&offset=
+//
+// The summary comes back with the entries rather than only from the summary endpoint,
+// so a statement can be drawn from one request. A statement that shows a balance from
+// one call and lines from another can disagree with itself while the second is still
+// in the air.
+func (h *PurchaseHandler) SupplierLedger(c *gin.Context) {
+	companyID, ok := h.company(c)
+	if !ok {
+		return
+	}
+	supplierID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid supplier"})
+		return
+	}
+
+	// Totals first: it is also the check that this supplier is the company's, and
+	// there is no sense reading a statement we are about to refuse.
+	summary, err := h.service.SupplierLedgerTotals(companyID, supplierID)
+	if err != nil {
+		fail(c, err, "Failed to load that statement")
+		return
+	}
+
+	entries, err := h.service.SupplierLedger(
+		companyID, supplierID,
+		clampPageSize(mustAtoi(c.Query("limit")), 0),
+		mustAtoi(c.Query("offset")),
+	)
+	if err != nil {
+		fail(c, err, "Failed to load that statement")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": entries, "summary": summary})
+}
+
+// SupplierLedgerSummary returns just where a supplier stands, for a screen that shows
+// the figure without the lines behind it.
+//
+// GET /api/v1/suppliers/:id/ledger/summary?company_id=1
+func (h *PurchaseHandler) SupplierLedgerSummary(c *gin.Context) {
+	companyID, ok := h.company(c)
+	if !ok {
+		return
+	}
+	supplierID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid supplier"})
+		return
+	}
+
+	summary, err := h.service.SupplierLedgerTotals(companyID, supplierID)
+	if err != nil {
+		fail(c, err, "Failed to load that statement")
+		return
+	}
+	c.JSON(http.StatusOK, summary)
 }

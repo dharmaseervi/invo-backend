@@ -192,6 +192,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/purchase-bills", purchaseHandler.GetBills)
 		protected.GET("/purchase-bills/:id", purchaseHandler.GetBill)
 		protected.POST("/supplier-payments", purchaseHandler.PaySupplier)
+		protected.GET("/suppliers/:id/ledger", purchaseHandler.SupplierLedger)
+		protected.GET("/suppliers/:id/ledger/summary", purchaseHandler.SupplierLedgerSummary)
 
 		// credit note routes
 		protected.POST("/credit-notes", creditNoteHandler.Create)
