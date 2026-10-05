@@ -36,6 +36,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	ledgerHandler := handlers.NewLedgerHandler(ledgerService, db.DB)
 	invoiceHandler := handlers.NewInvoiceHandler(db, ledgerService, pushService)
 	creditNoteService := services.NewCreditNoteService(db.DB, ledgerService)
+	purchaseService := services.NewPurchaseService(db.DB)
+	purchaseHandler := handlers.NewPurchaseHandler(db.DB, purchaseService)
 
 	paymentService := services.NewPaymentService(db.DB, ledgerService)
 	paymentHandler := handlers.NewPaymentHandler(db, paymentService)
@@ -182,6 +184,14 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/refunds", paymentHandler.RecordRefund)
 		protected.GET("/refunds", paymentHandler.GetRefunds)
 		protected.GET("/companies/:companyId/payments", paymentHandler.GetPayments)
+
+		// Purchases: suppliers, their bills, and what the shop owes them.
+		protected.POST("/suppliers", purchaseHandler.CreateSupplier)
+		protected.GET("/suppliers", purchaseHandler.GetSuppliers)
+		protected.POST("/purchase-bills", purchaseHandler.RecordBill)
+		protected.GET("/purchase-bills", purchaseHandler.GetBills)
+		protected.GET("/purchase-bills/:id", purchaseHandler.GetBill)
+		protected.POST("/supplier-payments", purchaseHandler.PaySupplier)
 
 		// credit note routes
 		protected.POST("/credit-notes", creditNoteHandler.Create)
