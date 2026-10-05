@@ -49,8 +49,9 @@ func (h *expenseHandler) CreateExpense(c *gin.Context) {
 	var exists bool
 	h.db.DB.QueryRow(`
         SELECT EXISTS(
-            SELECT 1 FROM companies 
-            WHERE id=$1 AND user_id=$2
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
         )`, request.CompanyID, userID).Scan(&exists)
 
 	if !exists {
@@ -88,8 +89,9 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
 	var exists bool
 	h.db.DB.QueryRow(`
         SELECT EXISTS(
-            SELECT 1 FROM companies 
-            WHERE id=$1 AND user_id=$2
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
         )
     `, companyID, userID).Scan(&exists)
 
@@ -183,8 +185,9 @@ func (h *expenseHandler) GetExpenseByID(c *gin.Context) {
 	var exists bool
 	h.db.DB.QueryRow(`
         SELECT EXISTS(
-            SELECT 1 FROM companies 
-            WHERE id=$1 AND user_id=$2
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
         )
     `, companyID, userID).Scan(&exists)
 
@@ -225,7 +228,9 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 	var exists bool
 	h.db.DB.QueryRow(`
 		SELECT EXISTS(
-			SELECT 1 FROM companies WHERE id=$1 AND user_id=$2
+			SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
 		)
 	`, companyID, userID).Scan(&exists)
 
@@ -288,8 +293,9 @@ func (h *expenseHandler) DeleteExpense(c *gin.Context) {
 	var exists bool
 	h.db.DB.QueryRow(`
         SELECT EXISTS(
-            SELECT 1 FROM companies 
-            WHERE id=$1 AND user_id=$2
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
         )
     `, companyID, userID).Scan(&exists)
 
@@ -327,8 +333,9 @@ func (h *expenseHandler) GetExpensesByDateRange(c *gin.Context) {
 	var exists bool
 	h.db.DB.QueryRow(`
         SELECT EXISTS(
-            SELECT 1 FROM companies 
-            WHERE id=$1 AND user_id=$2
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
         )
     `, companyID, userID).Scan(&exists)
 
@@ -389,8 +396,9 @@ func (h *expenseHandler) GetExpenseStats(c *gin.Context) {
 	var exists bool
 	h.db.DB.QueryRow(`
         SELECT EXISTS(
-            SELECT 1 FROM companies 
-            WHERE id=$1 AND user_id=$2
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
         )
     `, companyID, userID).Scan(&exists)
 
@@ -443,7 +451,9 @@ func (h *expenseHandler) GetExpenseSummary(c *gin.Context) {
 
 	var exists bool
 	h.db.DB.QueryRow(`
-        SELECT EXISTS(SELECT 1 FROM companies WHERE id=$1 AND user_id=$2)
+        SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2)
     `, companyID, userID).Scan(&exists)
 
 	if !exists {

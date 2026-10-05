@@ -44,7 +44,17 @@ func (h *CompanyHandler) CreateCompany(c *gin.Context) {
 
 	var newID int
 
-	err := h.db.DB.QueryRow(
+	// The company and its owner's membership are written together. That membership row
+	// is what grants access from here on, so a company saved without one would be a
+	// business its own owner could not open.
+	tx, err := h.db.DB.Begin()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create company"})
+		return
+	}
+	defer tx.Rollback()
+
+	err = tx.QueryRow(
 		query,
 		userID,
 		request.Name,
@@ -62,6 +72,22 @@ func (h *CompanyHandler) CreateCompany(c *gin.Context) {
 		return
 	}
 
+	if _, err := tx.Exec(`
+		INSERT INTO company_members (company_id, user_id, role, name)
+		VALUES ($1, $2, 'owner', '')
+		ON CONFLICT (company_id, user_id) DO NOTHING
+	`, newID, userID); err != nil {
+		log.Println("failed to record company owner:", err)
+		c.JSON(500, gin.H{"error": "Failed to create company"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Println("failed to commit company creation:", err)
+		c.JSON(500, gin.H{"error": "Failed to create company"})
+		return
+	}
+
 	c.JSON(201, gin.H{
 		"message":    "Company created successfully",
 		"company_id": newID,
@@ -75,10 +101,16 @@ func (h *CompanyHandler) GetMyCompanies(c *gin.Context) {
 		return
 	}
 
+	// Every business this person works in, not only the ones they own — a counter boy
+	// has no company of his own, and without this his app would open on an empty shelf.
+	// An owner sees exactly what they saw before, now with the word for what they are.
 	rows, err := h.db.DB.Query(`
-        SELECT id, user_id, name, address, phone, gst, city, state, pincode
-        FROM companies
-        WHERE user_id = $1
+        SELECT c.id, c.user_id, c.name, c.address, c.phone, c.gst, c.city, c.state, c.pincode,
+               COALESCE(m.role, CASE WHEN c.user_id = $1 THEN 'owner' ELSE '' END)
+        FROM companies c
+        LEFT JOIN company_members m ON m.company_id = c.id AND m.user_id = $1
+        WHERE c.user_id = $1 OR m.id IS NOT NULL
+        ORDER BY c.id
     `, userID)
 
 	if err != nil {
@@ -101,6 +133,7 @@ func (h *CompanyHandler) GetMyCompanies(c *gin.Context) {
 			&company.City,
 			&company.State,
 			&company.Pincode,
+			&company.Role,
 		); err != nil {
 			c.JSON(500, gin.H{"error": "Scan error"})
 			return

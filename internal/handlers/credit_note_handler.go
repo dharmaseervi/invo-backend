@@ -47,7 +47,9 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 
 	var exists bool
 	err = tx.QueryRow(`
-		SELECT EXISTS (SELECT 1 FROM companies WHERE id = $1 AND user_id = $2)
+		SELECT EXISTS (SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2)
 	`, req.CompanyID, userID).Scan(&exists)
 
 	if err != nil || !exists {
@@ -100,6 +102,8 @@ func (h *CreditNoteHandler) GetAll(c *gin.Context) {
 	h.db.QueryRow(`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
         )
     `, companyID, userID).Scan(&exists)
 

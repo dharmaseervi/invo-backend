@@ -31,8 +31,9 @@ func (h *CompanyAddressHandler) GetCompanyAddress(c *gin.Context) {
 		WHERE owner_type='company'
 		  AND owner_id=$1
 		  AND EXISTS (
-			  SELECT 1 FROM companies
-			  WHERE id=$1 AND user_id=$2
+			  SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
 		  )
 	`, companyID, userID).Scan(
 		&address.AddressType,
@@ -77,7 +78,9 @@ func (h *CompanyAddressHandler) SaveCompanyAddress(c *gin.Context) {
 			'company', $1, $2,
 			$3,$4,$5,$6,$7,$8,$9,$10,$11,$12
 		WHERE EXISTS (
-			SELECT 1 FROM companies WHERE id=$1 AND user_id=$13
+			SELECT 1 FROM companies WHERE id = $1 AND user_id = $13
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $13
 		)
 		ON CONFLICT (owner_type, owner_id, address_type)
 		DO UPDATE SET

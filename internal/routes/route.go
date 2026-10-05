@@ -1,6 +1,10 @@
 package routes
 
 import (
+	"log"
+	"sort"
+	"strings"
+
 	"invo-server/internal/config"
 	database "invo-server/internal/db"
 	"invo-server/internal/handlers"
@@ -38,6 +42,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	creditNoteService := services.NewCreditNoteService(db.DB, ledgerService)
 	purchaseService := services.NewPurchaseService(db.DB)
 	purchaseHandler := handlers.NewPurchaseHandler(db.DB, purchaseService)
+	staffHandler := handlers.NewStaffHandler(db.DB)
 
 	paymentService := services.NewPaymentService(db.DB, ledgerService)
 	paymentHandler := handlers.NewPaymentHandler(db, paymentService)
@@ -86,6 +91,10 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	protected.Use(
 		middleware.AuthMiddleware([]byte(cfg.JWT.Secret), db.DB),
 		middleware.UserRateLimiter(20, 40),
+		// What this account may do in the business the request is about. Runs for
+		// every protected route and governs the ones named in the policy; the rest
+		// pass through to the handler's own membership check, as before.
+		middleware.Permissions(db.DB),
 	)
 	{
 		protected.POST("/refresh-token", authHandler.RefreshToken)
@@ -195,6 +204,12 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/suppliers/:id/ledger", purchaseHandler.SupplierLedger)
 		protected.GET("/suppliers/:id/ledger/summary", purchaseHandler.SupplierLedgerSummary)
 
+		// Who works here. Owner only — enforced by the permission policy, not here.
+		protected.GET("/companies/:companyId/staff", staffHandler.GetStaff)
+		protected.POST("/companies/:companyId/staff", staffHandler.AddStaff)
+		protected.PUT("/companies/:companyId/staff/:memberId", staffHandler.UpdateStaff)
+		protected.DELETE("/companies/:companyId/staff/:memberId", staffHandler.RemoveStaff)
+
 		// credit note routes
 		protected.POST("/credit-notes", creditNoteHandler.Create)
 		protected.GET("/credit-notes", creditNoteHandler.GetAll)
@@ -227,5 +242,39 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		credentials.POST("/resend-verification", mailQuota, authHandler.ResendVerification)
 
 		protected.DELETE("/account", authHandler.DeleteAccount)
+	}
+
+	assertPermissionPolicyMatchesRoutes(r)
+}
+
+// assertPermissionPolicyMatchesRoutes refuses to start if the permission policy names a
+// route that no longer exists.
+//
+// The policy is a table of route patterns, which is what makes it readable in one place
+// — and what lets it rot in silence. Rename a route and its entry stops matching: the
+// route keeps working, for everybody, with the permission it was supposed to need
+// quietly gone. Nothing fails, no test goes red, and the hole is found the day a counter
+// boy opens the day's takings.
+//
+// So it is checked against the router that was just built, at startup, where it is loud.
+func assertPermissionPolicyMatchesRoutes(r *gin.Engine) {
+	registered := make(map[string]bool)
+	for _, route := range r.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+
+	var missing []string
+	for _, governed := range middleware.GovernedRoutes() {
+		if !registered[governed] {
+			missing = append(missing, governed)
+		}
+	}
+
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		log.Fatalf(
+			"permission policy names %d route(s) that do not exist: %s",
+			len(missing), strings.Join(missing, ", "),
+		)
 	}
 }

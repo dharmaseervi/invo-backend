@@ -436,6 +436,25 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 		{"company_addresses", `DELETE FROM company_addresses WHERE company_id IN (SELECT id FROM companies WHERE user_id = $1)`},
 		{"company_banks", `DELETE FROM company_bank_accounts WHERE company_id IN (SELECT id FROM companies WHERE user_id = $1)`},
 		{"companies", `DELETE FROM companies WHERE user_id = $1`},
+
+		// Before the user row goes, hand over whatever they made in somebody else's
+		// shop. invoices, clients, items, estimates and expenses all carry the id of
+		// whoever created them, and every one of those foreign keys cascades — so
+		// deleting a counter boy's account would take that shop's invoices with it,
+		// silently, from a business that was never his. They pass to the owner, which
+		// is who they were always for. The deletions above have already removed this
+		// user's own businesses, so nothing left here belongs to them.
+		{"handover_invoices", `UPDATE invoices i SET user_id = c.user_id
+			FROM companies c WHERE c.id = i.company_id AND i.user_id = $1`},
+		{"handover_clients", `UPDATE clients cl SET user_id = c.user_id
+			FROM companies c WHERE c.id = cl.company_id AND cl.user_id = $1`},
+		{"handover_items", `UPDATE items it SET user_id = c.user_id
+			FROM companies c WHERE c.id = it.company_id AND it.user_id = $1`},
+		{"handover_estimates", `UPDATE estimates e SET user_id = c.user_id
+			FROM companies c WHERE c.id = e.company_id AND e.user_id = $1`},
+		{"handover_expenses", `UPDATE expensess ex SET user_id = c.user_id
+			FROM companies c WHERE c.id = ex.company_id AND ex.user_id = $1`},
+
 		{"users", `DELETE FROM users WHERE id = $1`},
 	}
 

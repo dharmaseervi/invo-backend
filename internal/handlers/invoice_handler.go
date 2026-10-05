@@ -130,8 +130,9 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 	var companyExists bool
 	err := h.db.DB.QueryRow(`
 		SELECT EXISTS (
-			SELECT 1 FROM companies
-			WHERE id = $1 AND user_id = $2
+			SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
 		)
 	`, req.CompanyID, userID).Scan(&companyExists)
 
@@ -961,8 +962,9 @@ func (h *InvoiceHandler) GetInvoiceNumberPreview(c *gin.Context) {
 	var exists bool
 	err := h.db.DB.QueryRow(`
 		SELECT EXISTS (
-			SELECT 1 FROM companies
-			WHERE id = $1 AND user_id = $2
+			SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
 		)
 	`, companyID, userID).Scan(&exists)
 

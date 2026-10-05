@@ -32,8 +32,9 @@ func (h *CategoryHandler) CreateCategory(c *gin.Context) {
 	var exists bool
 	h.db.DB.QueryRow(`
         SELECT EXISTS(
-            SELECT 1 FROM companies 
-            WHERE id=$1 AND user_id=$2
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
         )
     `, request.CompanyID, userID).Scan(&exists)
 
@@ -64,8 +65,9 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
 	var exists bool
 	h.db.DB.QueryRow(`
         SELECT EXISTS(
-            SELECT 1 FROM companies
-            WHERE id=$1 AND user_id=$2
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
         )
     `, companyID, userID).Scan(&exists)
 
