@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"errors"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"invo-server/internal/services"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 type PaymentHandler struct {
@@ -117,7 +119,9 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 		           FROM payment_allocations pa
 		           JOIN invoices i ON i.id = pa.invoice_id
 		           WHERE pa.payment_id = p.id
-		       ), '')
+		       ), ''),
+		       COALESCE(p.status, 'recorded'), COALESCE(p.reversal_reason, ''),
+		       COALESCE(p.unapplied_amount, 0)
 		FROM payments p
 		LEFT JOIN clients cl ON cl.id = p.client_id
 		WHERE p.company_id = $1
@@ -138,6 +142,7 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 			&p.ID, &p.ClientID, &p.ClientName, &p.Amount,
 			&p.PaymentMethod, &p.Reference, &p.Notes,
 			&p.PaymentDate, &p.CreatedAt, &p.AppliedTo,
+			&p.Status, &p.ReversalReason, &p.UnappliedAmount,
 		); err != nil {
 			log.Println("failed to scan payment:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch payments"})
@@ -151,5 +156,53 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 		return
 	}
 
+	// The invoices each payment settled, for the whole page in one query rather than
+	// one per payment: moving a payment needs to show what it is on now, and a screen
+	// that costs fifty round trips to open is a screen nobody opens twice.
+	if err := attachAllocations(h.db.DB, payments); err != nil {
+		log.Println("failed to fetch payment allocations:", err)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"payments": payments})
+}
+
+// attachAllocations fills in each payment's invoice breakdown.
+func attachAllocations(db *sql.DB, payments []models.PaymentHistoryRow) error {
+	if len(payments) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(payments))
+	for _, p := range payments {
+		ids = append(ids, p.ID)
+	}
+
+	rows, err := db.Query(`
+		SELECT pa.payment_id, pa.invoice_id, COALESCE(i.invoice_number, ''), pa.amount
+		FROM payment_allocations pa
+		LEFT JOIN invoices i ON i.id = pa.invoice_id
+		WHERE pa.payment_id = ANY($1)
+		ORDER BY pa.payment_id, pa.id
+	`, pq.Array(ids))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	byPayment := map[int64][]models.PaymentAllocationRow{}
+	for rows.Next() {
+		var paymentID int64
+		var a models.PaymentAllocationRow
+		if err := rows.Scan(&paymentID, &a.InvoiceID, &a.InvoiceNumber, &a.Amount); err != nil {
+			return err
+		}
+		byPayment[paymentID] = append(byPayment[paymentID], a)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for i := range payments {
+		payments[i].Allocations = byPayment[payments[i].ID]
+	}
+	return nil
 }

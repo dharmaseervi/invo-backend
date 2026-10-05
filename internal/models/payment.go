@@ -42,6 +42,21 @@ type PaymentHistoryRow struct {
 	PaymentDate   string  `json:"payment_date"`
 	CreatedAt     string  `json:"created_at"`
 	AppliedTo     string  `json:"applied_to"`
+	// "recorded" or "reversed". A reversed payment stays in the history with the
+	// reason, because a customer's statement has to explain itself.
+	Status         string `json:"status"`
+	ReversalReason string `json:"reversal_reason"`
+	// What this payment did not settle: the customer's advance.
+	UnappliedAmount float64 `json:"unapplied_amount"`
+	// The invoices it settled, so the app can offer to move it without another call.
+	Allocations []PaymentAllocationRow `json:"allocations"`
+}
+
+// PaymentAllocationRow is one invoice a payment was applied to.
+type PaymentAllocationRow struct {
+	InvoiceID     int64   `json:"invoice_id"`
+	InvoiceNumber string  `json:"invoice_number"`
+	Amount        float64 `json:"amount"`
 }
 
 type PaymentAllocationDTO struct {
