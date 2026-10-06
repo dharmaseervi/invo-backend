@@ -19,6 +19,7 @@ import {
   Field,
   IconButton,
   Modal,
+  Select,
   SkeletonRows,
   TextArea,
   useToast,
@@ -180,6 +181,7 @@ function ExpenseForm({
   const [amount, setAmount] = useState(String(expense?.amount ?? ""));
   const [date, setDate] = useState(expense?.date ?? today());
   const [description, setDescription] = useState(expense?.description ?? "");
+  const [paymentMethod, setPaymentMethod] = useState(expense?.payment_method ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -202,7 +204,13 @@ function ExpenseForm({
     setSaving(true);
     setError("");
     try {
-      const body = { name: trimmed, amount: value, description: description.trim(), date };
+      const body = {
+        name: trimmed,
+        amount: value,
+        description: description.trim(),
+        date,
+        payment_method: paymentMethod,
+      };
       if (expense) await expensesApi.update(expense.id, body);
       else await expensesApi.create({ ...body, company_id: companyId });
       onSaved(trimmed);
@@ -239,6 +247,22 @@ function ExpenseForm({
             onChange={(e) => setDate(e.target.value)}
           />
         </div>
+        <Select
+          label="Paid by"
+          value={paymentMethod}
+          onChange={(e) => setPaymentMethod(e.target.value)}
+          hint="Only expenses paid in cash come out of the day's cash closing."
+        >
+          {/* Blank stays available on purpose: an expense whose method nobody recorded
+              is an unknown, and calling it cash would take money out of the drawer
+              figure that may never have left the till. */}
+          <option value="">Not recorded</option>
+          <option value="cash">Cash</option>
+          <option value="upi">UPI</option>
+          <option value="bank transfer">Bank transfer</option>
+          <option value="cheque">Cheque</option>
+          <option value="card">Card</option>
+        </Select>
         <TextArea
           label="Description"
           rows={2}

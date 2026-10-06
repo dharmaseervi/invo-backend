@@ -623,6 +623,9 @@ export type Expense = {
   amount: number;
   description: string;
   date: string;
+  /// How it was paid. Empty where nobody said, which is not the same as cash — only
+  /// expenses marked cash come out of the day's drawer figure.
+  payment_method?: string;
   created_at: string;
   updated_at: string;
 };
@@ -636,10 +639,17 @@ export const expenses = {
     amount: number;
     description: string;
     date: string;
+    payment_method?: string;
   }) => api<unknown>("/expenses", { method: "POST", body }),
   update: (
     id: number,
-    body: { name: string; amount: number; description: string; date: string },
+    body: {
+      name: string;
+      amount: number;
+      description: string;
+      date: string;
+      payment_method?: string;
+    },
   ) => api<unknown>(`/expenses/${id}`, { method: "PUT", body }),
   remove: (id: number) => api<unknown>(`/expenses/${id}`, { method: "DELETE" }),
 };
