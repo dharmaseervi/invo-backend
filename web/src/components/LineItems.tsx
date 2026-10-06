@@ -189,7 +189,77 @@ export function LineItems({
           No lines yet. Search above to add the first one.
         </p>
       ) : (
-        <div className="overflow-x-auto">
+        <>
+        {/* On a phone, each line is a card.
+            The table below needs 46rem to lay out, which on a 375px screen meant
+            editing a quantity by scrolling sideways to find the column, with the item
+            name already off the left edge — so nobody could see which line they were
+            changing while they changed it. */}
+        <ul className="space-y-3 sm:hidden">
+          {lines.map((line, i) => (
+            <li
+              key={`card-${line.item_id}-${i}`}
+              className="rounded-[var(--radius-base)] border border-line p-3"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-sm font-medium">{line.name}</span>
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  aria-label={`Remove ${line.name}`}
+                  className="-mr-1 -mt-1 rounded px-2 py-1 text-muted hover:bg-subtle hover:text-danger"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
+                <label className="text-label-12 text-muted">
+                  Qty
+                  <NumCell
+                    value={line.qty}
+                    onChange={(v) => update(i, "qty", v)}
+                    step="1"
+                    label={`Quantity for ${line.name}`}
+                  />
+                </label>
+                <label className="text-label-12 text-muted">
+                  Rate
+                  <NumCell
+                    value={line.rate}
+                    onChange={(v) => update(i, "rate", v)}
+                    label={`Rate for ${line.name}`}
+                  />
+                </label>
+                <label className="text-label-12 text-muted">
+                  Discount
+                  <NumCell
+                    value={line.discount}
+                    onChange={(v) => update(i, "discount", v)}
+                    label={`Discount for ${line.name}`}
+                  />
+                </label>
+                <label className="text-label-12 text-muted">
+                  GST %
+                  <NumCell
+                    value={line.tax_rate}
+                    onChange={(v) => update(i, "tax_rate", v)}
+                    label={`GST rate for ${line.name}`}
+                  />
+                </label>
+              </div>
+
+              <div className="mt-3 flex justify-between border-t border-line pt-2 text-sm">
+                <span className="text-muted">Amount</span>
+                <span className="tabular font-medium">
+                  {formatMoney(totals.lines[i]?.total ?? 0)}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+
+        <div className="hidden overflow-x-auto sm:block">
           <table className="w-full min-w-[46rem] text-sm">
             <thead>
               <tr className="border-b border-line text-left text-label-12 text-muted">
@@ -253,6 +323,7 @@ export function LineItems({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <div className="mt-5 flex justify-end">
