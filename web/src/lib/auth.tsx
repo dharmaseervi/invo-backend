@@ -23,8 +23,15 @@ type AuthState = {
   user: AuthUser | null;
   company: Company | null;
   companies: Company[];
-  /** True until the stored token has been checked, so screens do not flash. */
+  /** True until the session has been checked with the server, so screens do not flash. */
   loading: boolean;
+  /**
+   * Whether the server accepted this browser's session.
+   *
+   * Not inferred from a token here: in production the session is an httpOnly cookie
+   * the page cannot read, so the only way to know is to have used it.
+   */
+  signedIn: boolean;
   /**
    * Set when the company list could not be loaded — a dropped connection, a server
    * error — as opposed to an account that genuinely has no company yet. Without it both
@@ -48,6 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [companiesError, setCompaniesError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
 
   const loadCompanies = useCallback(async () => {
     let res;
@@ -92,18 +100,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
 
     (async () => {
-      if (!getToken()) {
-        setLoading(false);
-        return;
-      }
+      // Asked of the server rather than inferred from a token here. In production
+      // the session is an httpOnly cookie this page cannot read, so "is there a
+      // token?" has no answer worth having — the only way to know whether the cookie
+      // is still good is to use it. A 401 means no session, which is the same answer
+      // the old check gave for a missing token, and also catches the cases it never
+      // did: expired, revoked by a logout elsewhere, or reset on another device.
       try {
         const list = await loadCompanies();
         if (cancelled) return;
         setUser({ id: 0, email: "" });
+        setSignedIn(true);
         void list;
       } catch (err) {
         if (err instanceof ApiError && err.isAuthError) {
           setToken(null);
+          if (!cancelled) setSignedIn(false);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -119,6 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (token: string, nextUser: AuthUser) => {
       setToken(token);
       setUser(nextUser);
+      setSignedIn(true);
       try {
         await loadCompanies();
       } catch {
@@ -139,6 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setToken(null);
     setUser(null);
+    setSignedIn(false);
     setCompanies([]);
     setCompanyId(null);
     try {
@@ -164,13 +178,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       companies,
       company: companies.find((c) => c.id === companyId) ?? null,
       loading,
+      signedIn,
       companiesError,
       signIn,
       signOut,
       selectCompany,
       refreshCompanies: loadCompanies,
     }),
-    [user, companies, companyId, loading, companiesError, signIn, signOut, selectCompany, loadCompanies],
+    [
+      user,
+      companies,
+      companyId,
+      loading,
+      signedIn,
+      companiesError,
+      signIn,
+      signOut,
+      selectCompany,
+      loadCompanies,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -182,8 +208,8 @@ export function useAuth() {
   return ctx;
 }
 
-/** True once a token exists — the server is the real authority, this only gates the UI. */
+/** True once the server has accepted this browser's session. Gates the UI only. */
 export function useIsSignedIn() {
-  const { loading } = useAuth();
-  return { signedIn: !loading && Boolean(getToken()), loading };
+  const { loading, signedIn } = useAuth();
+  return { signedIn: !loading && signedIn, loading };
 }

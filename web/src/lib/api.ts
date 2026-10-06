@@ -1,9 +1,19 @@
 // Typed client for the Go API.
 //
-// Served from the same origin, so requests are relative and CORS never applies. The
-// token lives in localStorage because a static export has no server to set an
-// httpOnly cookie — every value rendered from the API must therefore go through
-// React's escaping, which it does, and none of it is ever passed to innerHTML.
+// Served from the same origin, so requests are relative and CORS never applies.
+//
+// The session is an httpOnly cookie the Go server sets at login. The static export has
+// no server of its own, but it does not need one: the Go server hosts both this app and
+// the API, so it can set a cookie this page is not allowed to read. That is the point —
+// a token in localStorage can be read by any script that ends up running here, whether
+// injected, shipped in a dependency, or added by an extension. The app escapes
+// everything it renders and never touches innerHTML, so there is no known way in; "no
+// known way in" is a weaker thing to rest on than the browser refusing to hand the value
+// over at all.
+//
+// In development the pages are served by `next dev` on another port, which makes every
+// request cross-site and means the Strict cookie is not sent. There the token from the
+// login response is kept and sent as a header instead, exactly as the phone apps do.
 
 // Relative in production: the Go server hosts the API and this app on one origin, so
 // there is no CORS preflight and no host to configure. `next dev` serves the pages
@@ -38,7 +48,16 @@ export function getToken(): string | null {
   }
 }
 
+/// True when this build talks to an API on another origin, which only happens under
+/// `next dev`. NEXT_PUBLIC_API_ORIGIN is empty in the production build.
+const CROSS_ORIGIN_DEV = (process.env.NEXT_PUBLIC_API_ORIGIN ?? "") !== "";
+
 export function setToken(token: string | null) {
+  // In production the session is the httpOnly cookie and there is nothing to keep.
+  // Writing the token here anyway would hand back exactly the thing the cookie exists
+  // to keep out of reach.
+  if (!CROSS_ORIGIN_DEV) return;
+
   try {
     if (token) window.localStorage.setItem(TOKEN_KEY, token);
     else window.localStorage.removeItem(TOKEN_KEY);
@@ -64,6 +83,8 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
   if (auth) {
+    // Only in development, where the cookie cannot travel. In production there is no
+    // token here to send and the cookie goes on its own.
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
@@ -75,6 +96,9 @@ export async function api<T>(path: string, opts: Options = {}): Promise<T> {
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal,
+      // Same-origin by default, which is what production is; stated rather than
+      // assumed because the session now rides on a cookie.
+      credentials: "same-origin",
     });
   } catch {
     // Distinguished from a server error, because the user's action differs: check
@@ -946,13 +970,18 @@ export const profile = {
 };
 
 /**
- * PDFs need the bearer token, so they cannot be opened as a plain link. Fetched as a
- * blob and handed to the browser as a download instead.
+ * PDFs need the session, so they cannot be opened as a plain link — a new tab would
+ * arrive without the Authorization header, and with a Strict cookie, without that
+ * either. Fetched as a blob and handed to the browser as a download instead.
  */
 export async function downloadPdf(path: string, filename: string): Promise<void> {
+  // The header only exists in development; in production the session cookie goes with
+  // the request, which is why the credentials mode is stated rather than left to the
+  // default to be right by luck.
   const token = getToken();
   const res = await fetch(`${BASE}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "same-origin",
   });
   if (!res.ok) {
     const text = await res.text();

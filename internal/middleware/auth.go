@@ -26,22 +26,37 @@ import (
 func AuthMiddleware(jwtSecret []byte, db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Get Authorization header
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
+		// The header first, which is how both phone apps authenticate. The website
+		// uses a cookie the browser will not hand to JavaScript — see SessionCookie —
+		// so a script injected into the page cannot read the session out of it, which
+		// is exactly what localStorage allowed.
+		var tokenString string
+		if authHeader := c.GetHeader("Authorization"); authHeader != "" {
+			parts := strings.Split(authHeader, " ")
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format"})
+				c.Abort()
+				return
+			}
+			tokenString = parts[1]
+		} else if cookie, err := c.Cookie(SessionCookie); err == nil && cookie != "" {
+			// A cookie travels on its own, so a request carrying one must also prove it
+			// came from this site rather than from a page somebody was tricked into
+			// opening. SameSite=Strict does that for every browser in use, and the
+			// check below refuses anything that arrives looking cross-site anyway.
+			if !sameSiteRequest(c) {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+				c.Abort()
+				return
+			}
+			tokenString = cookie
+		}
+
+		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header missing"})
 			c.Abort()
 			return
 		}
-
-		// Check Bearer scheme
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization format"})
-			c.Abort()
-			return
-		}
-
-		tokenString := parts[1]
 
 		// Parse and validate token
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
@@ -360,5 +375,43 @@ func EmailQuota(accountPerHour float64, accountBurst int, ipPerHour float64, ipB
 		}
 
 		c.Next()
+	}
+}
+
+// SessionCookie is the name of the website's session cookie.
+//
+// The web app used to keep its token in localStorage, where any script running on the
+// page can read it — an injected script, a compromised dependency, a browser extension.
+// The app escapes everything it renders and never touches innerHTML, so there was no
+// known way in; "no known way in" is a weaker thing to rely on than a browser refusing
+// to hand the value over at all.
+//
+// The Go server hosts both the website and the API on one origin, so it can set a cookie
+// the page cannot read. The phone apps are unaffected: they send a header, which is
+// still checked first.
+const SessionCookie = "invo_session"
+
+// sameSiteRequest reports whether a cookie-authenticated request plausibly came from
+// this site's own pages.
+//
+// Cookies ride along automatically, which is what makes them worth having and also what
+// makes cross-site request forgery possible. SameSite=Strict on the cookie is the real
+// defence; this is the belt to that pair of braces, and it costs one header comparison.
+//
+// Sec-Fetch-Site cannot be set by page JavaScript, so when it is there it is worth
+// believing. When it is absent the request is allowed through on the strength of
+// SameSite alone: Safari did not send this header until 16.4, and refusing without it
+// would have logged those browsers out on every request — a login that succeeds and
+// then immediately fails, with nothing on screen to explain it. SameSite=Strict has
+// been enforced far longer and is the defence that actually matters here; this header
+// only catches a browser that somehow sent the cookie anyway.
+func sameSiteRequest(c *gin.Context) bool {
+	switch c.GetHeader("Sec-Fetch-Site") {
+	case "cross-site":
+		return false
+	default:
+		// same-origin, same-site, "none" (a typed address or a bookmark), or a browser
+		// too old to say.
+		return true
 	}
 }

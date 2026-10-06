@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	database "invo-server/internal/db"
+	"invo-server/internal/middleware"
 	"invo-server/internal/models"
 	"invo-server/internal/services"
 	utils "invo-server/internal/util"
@@ -199,6 +200,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// The website reads its session from here rather than from the body: a cookie the
+	// browser will not hand to JavaScript cannot be read by an injected script, which
+	// is what localStorage could not promise. The phone apps keep using the token in
+	// the body, which the middleware still checks first.
+	setSessionCookie(c, tokenString, h.tokenExpiration)
+
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
 			"id":    user.ID,
@@ -387,6 +394,11 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 			return
 		}
 	}
+
+	// The cookie goes with the session it named. Without this the browser would keep
+	// sending a token the server has already refused, which works but reads as a bug
+	// the first time somebody looks at the requests.
+	clearSessionCookie(c)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Successfully logged out",
@@ -632,5 +644,45 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		"token":      tokenString,
 		"expires_in": h.tokenExpiration.Seconds(),
 		"token_type": "Bearer",
+	})
+}
+
+// setSessionCookie gives the browser a session it cannot read from JavaScript.
+//
+// HttpOnly is the point of the exercise. Secure keeps it off plaintext connections, and
+// is skipped only when the server is itself running without TLS, which is development —
+// a cookie marked Secure is simply never sent over http:// and the website would appear
+// to log in and then immediately be logged out.
+//
+// SameSite=Strict is what makes a cookie safe to authenticate with: the browser will not
+// attach it to a request started by any other site, so a page that tries to post to this
+// API on a logged-in person's behalf gets an anonymous request. The website and the API
+// are one origin in production, so nothing legitimate is lost.
+func setSessionCookie(c *gin.Context, token string, lifetime time.Duration) {
+	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     middleware.SessionCookie,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(lifetime.Seconds()),
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteStrictMode,
+	})
+}
+
+// clearSessionCookie ends the browser's side of a session.
+func clearSessionCookie(c *gin.Context) {
+	secure := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     middleware.SessionCookie,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteStrictMode,
 	})
 }
