@@ -138,6 +138,8 @@ var routePermissions = map[string]Permission{
 	"GET /api/v1/purchase-bills":               PermSeeCosts,
 	"GET /api/v1/purchase-bills/:id":           PermSeeCosts,
 	"POST /api/v1/supplier-payments":           PermSeeCosts,
+	"POST /api/v1/purchase-returns":            PermSeeCosts,
+	"GET /api/v1/purchase-returns":             PermSeeCosts,
 	"GET /api/v1/suppliers/:id/ledger":         PermSeeCosts,
 	"GET /api/v1/suppliers/:id/ledger/summary": PermSeeCosts,
 	"GET /api/v1/item/:itemId/movements":       PermSeeCosts,

@@ -214,6 +214,9 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/purchase-bills", purchaseHandler.GetBills)
 		protected.GET("/purchase-bills/:id", purchaseHandler.GetBill)
 		protected.POST("/supplier-payments", purchaseHandler.PaySupplier)
+		// Stock going back to a supplier.
+		protected.POST("/purchase-returns", purchaseHandler.RecordReturn)
+		protected.GET("/purchase-returns", purchaseHandler.GetReturns)
 		protected.GET("/suppliers/:id/ledger", purchaseHandler.SupplierLedger)
 		protected.GET("/suppliers/:id/ledger/summary", purchaseHandler.SupplierLedgerSummary)
 

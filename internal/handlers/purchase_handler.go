@@ -130,10 +130,18 @@ func (h *PurchaseHandler) GetSuppliers(c *gin.Context) {
 		       -- holding. Shown beside what is owed so the list and the statement say
 		       -- the same thing — a supplier can be owed nothing and still be sitting
 		       -- on a deposit, and a figure of zero alone hides that.
+		       -- Money paid plus goods sent back, less what the bills account for.
+		       -- A return the bills have not absorbed is credit sitting with the
+		       -- supplier exactly as an overpayment is.
 		       GREATEST(COALESCE((
 		           SELECT SUM(p.amount) FROM supplier_payments p WHERE p.supplier_id = s.id
+		       ), 0) + COALESCE((
+		           SELECT SUM(r.total) FROM purchase_returns r WHERE r.supplier_id = s.id
 		       ), 0) - COALESCE((
 		           SELECT SUM(b.paid_amount) FROM purchase_bills b
+		           WHERE b.supplier_id = s.id AND b.status <> 'cancelled'
+		       ), 0) - COALESCE((
+		           SELECT SUM(b.total - b.remaining_amount - b.paid_amount) FROM purchase_bills b
 		           WHERE b.supplier_id = s.id AND b.status <> 'cancelled'
 		       ), 0), 0)
 		FROM suppliers s
@@ -461,4 +469,95 @@ func (h *PurchaseHandler) SupplierLedgerSummary(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, summary)
+}
+
+// MARK: - Returns
+
+// RecordReturn sends stock back to a supplier.
+//
+// POST /api/v1/purchase-returns?company_id=1
+func (h *PurchaseHandler) RecordReturn(c *gin.Context) {
+	companyID, ok := h.company(c)
+	if !ok {
+		return
+	}
+
+	var req services.PurchaseReturnRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	id, err := h.service.RecordReturn(
+		c.Request.Context(), companyID, int64(c.GetInt("user_id")), req,
+	)
+	if err != nil {
+		fail(c, err, "Failed to record that return")
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Return recorded", "return_id": id})
+}
+
+// GetReturns lists what has been sent back, newest first.
+//
+// GET /api/v1/purchase-returns?company_id=1&supplier_id=
+func (h *PurchaseHandler) GetReturns(c *gin.Context) {
+	companyID, ok := h.company(c)
+	if !ok {
+		return
+	}
+
+	query := `
+		SELECT r.id, r.supplier_id, COALESCE(s.name, ''), r.return_number,
+		       TO_CHAR(r.return_date, 'YYYY-MM-DD'), r.subtotal, r.tax, r.total,
+		       COALESCE(r.reason, ''), COALESCE(b.bill_number, '')
+		FROM purchase_returns r
+		JOIN suppliers s ON s.id = r.supplier_id
+		LEFT JOIN purchase_bills b ON b.id = r.bill_id
+		WHERE r.company_id = $1
+	`
+	args := []interface{}{companyID}
+	if v := c.Query("supplier_id"); v != "" {
+		if supplierID, err := strconv.ParseInt(v, 10, 64); err == nil {
+			query += " AND r.supplier_id = $" + strconv.Itoa(len(args)+1)
+			args = append(args, supplierID)
+		}
+	}
+	query += " ORDER BY r.return_date DESC, r.id DESC"
+	if limit := clampPageSize(mustAtoi(c.Query("limit")), 50); limit > 0 {
+		query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
+		args = append(args, limit, mustAtoi(c.Query("offset")))
+	}
+
+	rows, err := h.db.QueryContext(c.Request.Context(), query, args...)
+	if err != nil {
+		log.Println("failed to fetch purchase returns:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch returns"})
+		return
+	}
+	defer rows.Close()
+
+	out := []gin.H{}
+	for rows.Next() {
+		var (
+			id, supplierID             int64
+			supplierName, number, date string
+			subtotal, tax, total       float64
+			reason, billNumber         string
+		)
+		if err := rows.Scan(&id, &supplierID, &supplierName, &number, &date,
+			&subtotal, &tax, &total, &reason, &billNumber); err != nil {
+			log.Println("failed to scan purchase return:", err)
+			continue
+		}
+		out = append(out, gin.H{
+			"id": id, "supplier_id": supplierID, "supplier_name": supplierName,
+			"return_number": number, "return_date": date,
+			"subtotal": subtotal, "tax": tax, "total": total,
+			"reason": reason, "bill_number": billNumber,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": out})
 }

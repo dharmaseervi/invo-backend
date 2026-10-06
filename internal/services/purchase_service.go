@@ -371,14 +371,26 @@ func isDuplicateBillNumber(err error) bool {
 // place to keep the same fact is a second place for it to go wrong.
 func supplierCredit(ctx context.Context, tx *sql.Tx, companyID, supplierID int64) (money.Amount, error) {
 	var paid, applied float64
+	// Goods sent back count the same way money does: both are value the supplier owes
+	// the shop. A return that the bills have not already absorbed is credit sitting
+	// with them, and the next bill should spend it exactly as it spends an overpayment.
+	//
+	// What a bill has absorbed of a return is total - remaining - paid: a return reduces
+	// what is still owed without pretending more money changed hands.
 	err := tx.QueryRowContext(ctx, `
 		SELECT
 			COALESCE((
 				SELECT SUM(amount) FROM supplier_payments
 				WHERE company_id = $1 AND supplier_id = $2
+			), 0) + COALESCE((
+				SELECT SUM(total) FROM purchase_returns
+				WHERE company_id = $1 AND supplier_id = $2
 			), 0),
 			COALESCE((
 				SELECT SUM(paid_amount) FROM purchase_bills
+				WHERE company_id = $1 AND supplier_id = $2 AND status <> 'cancelled'
+			), 0) + COALESCE((
+				SELECT SUM(total - remaining_amount - paid_amount) FROM purchase_bills
 				WHERE company_id = $1 AND supplier_id = $2 AND status <> 'cancelled'
 			), 0)
 	`, companyID, supplierID).Scan(&paid, &applied)

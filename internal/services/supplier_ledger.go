@@ -39,9 +39,11 @@ type SupplierLedgerSummary struct {
 	SupplierID int64   `json:"supplier_id"`
 	Name       string  `json:"name"`
 	Billed     float64 `json:"billed"`
-	Paid       float64 `json:"paid"`
-	Balance    float64 `json:"balance"`
-	Entries    int     `json:"entries"`
+	// Paid counts money handed over and goods sent back together: both reduce what the
+	// shop owes, and a statement that showed only one would not add up.
+	Paid    float64 `json:"paid"`
+	Balance float64 `json:"balance"`
+	Entries int     `json:"entries"`
 }
 
 // supplierLedgerRows is the statement as one ordered list with a running balance.
@@ -81,6 +83,18 @@ const supplierLedgerRows = `
 	           0::numeric, p.amount
 	    FROM supplier_payments p
 	    WHERE p.company_id = $1 AND p.supplier_id = $2
+
+	    UNION ALL
+
+	    -- Goods sent back. A credit, because the supplier owes the shop for them:
+	    -- whether that comes off the bill or sits as credit against the next one, the
+	    -- statement has to show why the balance moved.
+	    SELECT 'RETURN', r.id, r.return_date, r.created_at,
+	           r.return_number,
+	           'Returned — ' || r.return_number,
+	           0::numeric, r.total
+	    FROM purchase_returns r
+	    WHERE r.company_id = $1 AND r.supplier_id = $2
 	) entries
 `
 
@@ -158,6 +172,9 @@ func (s *PurchaseService) SupplierLedgerTotals(
 			COALESCE((
 				SELECT SUM(amount) FROM supplier_payments
 				WHERE company_id = $1 AND supplier_id = $2
+			), 0) + COALESCE((
+				SELECT SUM(total) FROM purchase_returns
+				WHERE company_id = $1 AND supplier_id = $2
 			), 0),
 			COALESCE((
 				SELECT COUNT(*) FROM purchase_bills
@@ -165,6 +182,10 @@ func (s *PurchaseService) SupplierLedgerTotals(
 			), 0) +
 			COALESCE((
 				SELECT COUNT(*) FROM supplier_payments
+				WHERE company_id = $1 AND supplier_id = $2
+			), 0) +
+			COALESCE((
+				SELECT COUNT(*) FROM purchase_returns
 				WHERE company_id = $1 AND supplier_id = $2
 			), 0)
 	`, companyID, supplierID).Scan(&out.Name, &out.Billed, &out.Paid, &out.Entries)
