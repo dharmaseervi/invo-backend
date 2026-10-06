@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"invo-server/internal/services"
 
@@ -29,9 +31,12 @@ func (h *itemHandler) PreviewItemImport(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
 	var req struct {
-		CompanyID int                              `json:"company_id"`
-		CSV       string                           `json:"csv"`
-		Mapping   map[string]services.ImportColumn `json:"mapping"`
+		CompanyID int    `json:"company_id"`
+		CSV       string `json:"csv"`
+		// An Excel workbook, base64 encoded. Every shop with a price list has it in
+		// Excel, and "save as CSV, pick the right encoding" is where people give up.
+		XLSX    string                           `json:"xlsx"`
+		Mapping map[string]services.ImportColumn `json:"mapping"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
@@ -54,7 +59,18 @@ func (h *itemHandler) PreviewItemImport(c *gin.Context) {
 		return
 	}
 
-	preview, err := services.ParseItemCSV(h.db.DB, req.CompanyID, req.CSV, req.Mapping)
+	content, err := importContent(req.CSV, req.XLSX)
+	if err != nil {
+		var input services.ImportInputError
+		if errors.As(err, &input) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": input.Message})
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "That file could not be read."})
+		return
+	}
+
+	preview, err := services.ParseItemCSV(h.db.DB, req.CompanyID, content, req.Mapping)
 	if err != nil {
 		var input services.ImportInputError
 		if errors.As(err, &input) {
@@ -119,4 +135,39 @@ func (h *itemHandler) ApplyItemImport(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, result)
+}
+
+// importContent turns whichever of the two the caller sent into the text the parser
+// reads.
+//
+// An Excel workbook is checked by its contents rather than trusted because of which
+// field it arrived in: somebody who renames a CSV to .xlsx, or the reverse, should still
+// get their catalogue imported rather than an error about a format they did not choose.
+func importContent(csvText, xlsxBase64 string) (string, error) {
+	if strings.TrimSpace(xlsxBase64) != "" {
+		raw, err := base64.StdEncoding.DecodeString(xlsxBase64)
+		if err != nil {
+			return "", services.ImportInputError{Message: "That file could not be read."}
+		}
+		if len(raw) > maxImportBytes {
+			return "", services.ImportInputError{
+				Message: "That file is too large to import in one go. Split it and import in parts.",
+			}
+		}
+		if services.LooksLikeXLSX(raw) {
+			return services.XLSXToCSV(raw)
+		}
+		// Not a workbook after all — most likely a CSV that was renamed. Read it as
+		// one rather than refusing over the extension.
+		return string(raw), nil
+	}
+
+	// A CSV pasted or read as text. It may still be a workbook somebody dropped in
+	// whole, which would arrive as unreadable bytes rather than as something to parse.
+	if services.LooksLikeXLSX([]byte(csvText)) {
+		return "", services.ImportInputError{
+			Message: "That looks like an Excel file. Send it as a file rather than as text and it will import.",
+		}
+	}
+	return csvText, nil
 }

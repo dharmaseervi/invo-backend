@@ -1,7 +1,10 @@
 package middleware
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -321,6 +324,7 @@ func companyForRequest(c *gin.Context, db *sql.DB) (int64, bool) {
 		c.Param("company_id"),
 		c.Query("company_id"),
 		c.Query("companyId"),
+		c.GetHeader("X-Company-ID"),
 	} {
 		if v == "" {
 			continue
@@ -330,5 +334,49 @@ func companyForRequest(c *gin.Context, db *sql.DB) (int64, bool) {
 		}
 	}
 
+	// Last, the JSON body. The catalogue import puts the company there and nowhere
+	// else, so without this it resolved to nothing and every import was refused —
+	// which is how a working feature broke the day this middleware was added. Failing
+	// closed is right, but only when "closed" is not also closed to the people who
+	// should be let through.
+	return companyFromBody(c)
+}
+
+// maxBodyPeek bounds how much of a body is read looking for a company id. A catalogue
+// import is megabytes of rows and the id is in the first few bytes of the object.
+const maxBodyPeek = 1 << 20
+
+// companyFromBody peeks at the JSON body for a company id and puts the body back, so
+// the handler still reads it whole.
+func companyFromBody(c *gin.Context) (int64, bool) {
+	if c.Request.Body == nil {
+		return 0, false
+	}
+
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBodyPeek))
+	if err != nil {
+		return 0, false
+	}
+	// Whatever happens next, the handler gets the body it would have had. A body
+	// longer than the peek limit is put back whole by chaining what was read in front
+	// of the rest, so a large import is not quietly truncated on its way through.
+	c.Request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), c.Request.Body))
+
+	var probe struct {
+		SnakeCase *json.Number `json:"company_id"`
+		CamelCase *json.Number `json:"companyId"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return 0, false
+	}
+
+	for _, n := range []*json.Number{probe.SnakeCase, probe.CamelCase} {
+		if n == nil {
+			continue
+		}
+		if id, err := strconv.ParseInt(n.String(), 10, 64); err == nil {
+			return id, true
+		}
+	}
 	return 0, false
 }
