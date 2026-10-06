@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+	"encoding/json"
 	"strings"
 
 	"invo-server/internal/money"
@@ -144,9 +145,36 @@ func (s *LedgerService) drawerFor(companyID int64, date string) (
 	return
 }
 
-// ClosingFor reads a day: what the drawer should hold, and what was counted if the day
-// has been closed already.
+// ClosingFor returns the recorded snapshot for closed days. Only open days use live
+// transactions, so later corrections cannot change one side of a saved reconciliation.
 func (s *LedgerService) ClosingFor(companyID int64, date string) (DayClosing, error) {
+	out := DayClosing{Date: date}
+	var inJSON, outJSON []byte
+	err := s.db.QueryRow(`
+		SELECT opening_cash, cash_in, cash_out, expected_cash, counted_cash,
+		       difference, COALESCE(note, ''), in_breakdown, out_breakdown
+		FROM day_closings
+		WHERE company_id = $1 AND closing_date = $2::date
+	`, companyID, date).Scan(
+		&out.Opening, &out.CashIn, &out.CashOut, &out.Expected, &out.Counted,
+		&out.Difference, &out.Note, &inJSON, &outJSON,
+	)
+	if err == nil {
+		out.InBreakdown, err = closingBreakdown(inJSON, "Cash in at closing", out.CashIn)
+		if err != nil {
+			return DayClosing{}, err
+		}
+		out.OutBreakdown, err = closingBreakdown(outJSON, "Cash out at closing", out.CashOut)
+		if err != nil {
+			return DayClosing{}, err
+		}
+		out.Closed = true
+		return out, nil
+	}
+	if err != sql.ErrNoRows {
+		return DayClosing{}, err
+	}
+
 	opening, cashIn, cashOut, inLines, outLines, err := s.drawerFor(companyID, date)
 	if err != nil {
 		return DayClosing{}, err
@@ -157,7 +185,7 @@ func (s *LedgerService) ClosingFor(companyID int64, date string) (DayClosing, er
 		Sub(money.FromFloat(cashOut)).
 		Round()
 
-	out := DayClosing{
+	out = DayClosing{
 		Date:         date,
 		Opening:      opening,
 		CashIn:       cashIn,
@@ -167,25 +195,23 @@ func (s *LedgerService) ClosingFor(companyID int64, date string) (DayClosing, er
 		OutBreakdown: outLines,
 	}
 
-	var note sql.NullString
-	err = s.db.QueryRow(`
-		SELECT counted_cash, difference, COALESCE(note, '')
-		FROM day_closings
-		WHERE company_id = $1 AND closing_date = $2::date
-	`, companyID, date).Scan(&out.Counted, &out.Difference, &note)
-
-	switch {
-	case err == sql.ErrNoRows:
-		// Not closed yet. The expected figure still stands, so the screen can show
-		// what should be there before anybody counts.
-		return out, nil
-	case err != nil:
-		return out, err
-	}
-
-	out.Note = note.String
-	out.Closed = true
 	return out, nil
+}
+
+// Older closings have saved totals but no saved category breakdown. Show those totals
+// without fabricating transaction counts or reconstructing history from today's data.
+func closingBreakdown(data []byte, label string, total float64) ([]CashLine, error) {
+	if len(data) == 0 || string(data) == "null" {
+		if total == 0 {
+			return []CashLine{}, nil
+		}
+		return []CashLine{{Label: label, Amount: total}}, nil
+	}
+	var lines []CashLine
+	if err := json.Unmarshal(data, &lines); err != nil {
+		return nil, err
+	}
+	return lines, nil
 }
 
 // Close records what was counted out of the drawer.
@@ -226,12 +252,20 @@ func (s *LedgerService) Close(
 		Sub(money.FromFloat(cashOut)).
 		Round()
 	difference := money.FromFloat(counted).Sub(expected).Round()
+	inJSON, err := json.Marshal(inLines)
+	if err != nil {
+		return DayClosing{}, err
+	}
+	outJSON, err := json.Marshal(outLines)
+	if err != nil {
+		return DayClosing{}, err
+	}
 
 	_, err = s.db.Exec(`
 		INSERT INTO day_closings
 			(company_id, user_id, closing_date, opening_cash, cash_in, cash_out,
-			 expected_cash, counted_cash, difference, note)
-		VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10)
+			 expected_cash, counted_cash, difference, note, in_breakdown, out_breakdown)
+		VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12::jsonb)
 		ON CONFLICT (company_id, closing_date)
 		DO UPDATE SET opening_cash  = EXCLUDED.opening_cash,
 		              cash_in       = EXCLUDED.cash_in,
@@ -240,10 +274,12 @@ func (s *LedgerService) Close(
 		              counted_cash  = EXCLUDED.counted_cash,
 		              difference    = EXCLUDED.difference,
 		              note          = EXCLUDED.note,
+		              in_breakdown  = EXCLUDED.in_breakdown,
+		              out_breakdown = EXCLUDED.out_breakdown,
 		              user_id       = EXCLUDED.user_id,
 		              updated_at    = NOW()
 	`, companyID, userID, date, carried, cashIn, cashOut,
-		expected.Float64(), counted, difference.Float64(), strings.TrimSpace(note))
+		expected.Float64(), counted, difference.Float64(), strings.TrimSpace(note), string(inJSON), string(outJSON))
 	if err != nil {
 		return DayClosing{}, err
 	}

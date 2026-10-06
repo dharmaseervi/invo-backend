@@ -209,7 +209,14 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 	userID := c.GetInt("user_id")
 	expenseID := c.Param("id")
 
-	var request models.Expensess
+	var request struct {
+		Name        string  `json:"name"`
+		Amount      float64 `json:"amount"`
+		Description string  `json:"description"`
+		Date        string  `json:"date"`
+		// Omitted keeps the existing method; an explicit empty string clears it.
+		PaymentMethod *string `json:"payment_method"`
+	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
@@ -256,7 +263,7 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 			amount = COALESCE($2, amount),
 			description = COALESCE($3, description),
 			date = COALESCE($4, date),
-			payment_method = COALESCE(NULLIF($5, ''), payment_method),
+			payment_method = CASE WHEN $5::text IS NULL THEN payment_method ELSE NULLIF($5, '') END,
 			updated_at = NOW()
 		WHERE id = $6
 	`,
