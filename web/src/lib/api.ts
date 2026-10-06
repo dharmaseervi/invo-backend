@@ -631,8 +631,24 @@ export type Expense = {
 };
 
 export const expenses = {
-  list: (companyId: number, signal?: AbortSignal) =>
-    api<{ expenses: Expense[] }>(`/companies/${companyId}/expenses`, { signal }),
+  /// One page. Asking for everything was fine until a shop had a few years of them,
+  /// at which point the page downloaded the lot to show the first screen.
+  list: (companyId: number, opts?: { limit?: number; offset?: number; signal?: AbortSignal }) => {
+    const params = new URLSearchParams();
+    if (opts?.limit) params.set("limit", String(opts.limit));
+    if (opts?.offset) params.set("offset", String(opts.offset));
+    const query = params.toString();
+    return api<{ expenses: Expense[] }>(
+      `/companies/${companyId}/expenses${query ? `?${query}` : ""}`,
+      { signal: opts?.signal },
+    );
+  },
+  /// Counted over every expense by the server, not over the page on screen.
+  summary: (companyId: number, signal?: AbortSignal) =>
+    api<{ count: number; this_month: number; last_month: number; total: number }>(
+      `/companies/${companyId}/expenses/summary`,
+      { signal },
+    ),
   create: (body: {
     company_id: number;
     name: string;

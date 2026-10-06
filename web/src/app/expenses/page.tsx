@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   expenses as expensesApi,
@@ -25,6 +25,10 @@ import {
   useToast,
 } from "@/components/ui";
 
+/// Fifty at a time. Enough that most shops never press "show more", small enough that
+/// a few years of expenses is not downloaded to show the first screen.
+const PAGE_SIZE = 50;
+
 export default function ExpensesPage() {
   const { company, loading: authLoading } = useAuth();
   const toast = useToast();
@@ -34,6 +38,9 @@ export default function ExpensesPage() {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<Expense | null>(null);
   const [creating, setCreating] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [total, setTotal] = useState(0);
 
   const companyId = company?.id ?? null;
 
@@ -42,14 +49,44 @@ export default function ExpensesPage() {
     setLoading(true);
     setError("");
     try {
-      const res = await expensesApi.list(companyId);
-      setRows(res.expenses ?? []);
+      // The rows and the figure above them are read together: a total describing one
+      // set of expenses over a list showing another is worse than no total.
+      const [res, totals] = await Promise.all([
+        expensesApi.list(companyId, { limit: PAGE_SIZE, offset: 0 }),
+        expensesApi.summary(companyId),
+      ]);
+      const page = res.expenses ?? [];
+      setRows(page);
+      setHasMore(page.length >= PAGE_SIZE);
+      setTotal(totals.total ?? 0);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load expenses");
     } finally {
       setLoading(false);
     }
   }, [companyId]);
+
+  const loadMore = useCallback(async () => {
+    if (!companyId || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await expensesApi.list(companyId, {
+        limit: PAGE_SIZE,
+        offset: rows.length,
+      });
+      const page = res.expenses ?? [];
+      // Skipping what is already held: an expense added while the list was open shifts
+      // the offsets, and the same row would otherwise arrive twice.
+      const known = new Set(rows.map((r) => r.id));
+      setRows((current) => [...current, ...page.filter((r) => !known.has(r.id))]);
+      setHasMore(page.length >= PAGE_SIZE);
+    } catch {
+      // The page on screen is still good; a failed scroll is not worth an error over.
+      setHasMore(false);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [companyId, hasMore, loadingMore, rows]);
 
   useEffect(() => {
     if (!companyId) return;
@@ -58,7 +95,8 @@ export default function ExpensesPage() {
     })();
   }, [companyId, load]);
 
-  const total = useMemo(() => rows.reduce((sum, e) => sum + (e.amount ?? 0), 0), [rows]);
+  // From the server, over every expense. Added up here it described the rows that
+  // happened to be loaded and called it the business's spending.
 
   const remove = async (expense: Expense) => {
     if (!window.confirm(`Delete "${expense.name}"? This cannot be undone.`)) return;
@@ -138,6 +176,14 @@ export default function ExpensesPage() {
           </ul>
         )}
       </Card>
+
+      {hasMore && (
+        <div className="mt-3 text-center">
+          <Button type="button" onClick={() => void loadMore()} loading={loadingMore}>
+            Show more
+          </Button>
+        </div>
+      )}
 
       {rows.length > 0 && (
         <p className="mt-3 text-right text-sm">
