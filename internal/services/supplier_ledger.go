@@ -1,6 +1,10 @@
 package services
 
-import "invo-server/internal/money"
+import (
+	"context"
+
+	"invo-server/internal/money"
+)
 
 // A supplier's statement: every bill they sent, every payment made to them, and the
 // running balance between the two. The buying-side twin of a customer's ledger.
@@ -86,6 +90,7 @@ const supplierLedgerRows = `
 // comes back — still oldest-first within the page, the way a passbook reads — because
 // what somebody wants on opening a statement is where it stands now, not where it began.
 func (s *PurchaseService) SupplierLedger(
+	ctx context.Context,
 	companyID, supplierID int64,
 	limit, offset int,
 ) ([]SupplierLedgerEntry, error) {
@@ -111,7 +116,7 @@ func (s *PurchaseService) SupplierLedger(
 		args = append(args, limit, offset)
 	}
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -138,11 +143,12 @@ func (s *PurchaseService) SupplierLedger(
 // another company has no name here, and the caller gets a refusal rather than an empty
 // statement that looks like a supplier with no history.
 func (s *PurchaseService) SupplierLedgerTotals(
+	ctx context.Context,
 	companyID, supplierID int64,
 ) (SupplierLedgerSummary, error) {
 	out := SupplierLedgerSummary{SupplierID: supplierID}
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT
 			COALESCE((SELECT name FROM suppliers WHERE id = $2 AND company_id = $1), ''),
 			COALESCE((

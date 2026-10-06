@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -65,14 +66,14 @@ func TestCashClosingSnapshot(t *testing.T) {
 	 (1, '2026-10-02', 25, 'Cash'), (1, '2026-10-02', 75, 'UPI'),
 	 (1, '2026-10-02', 30, NULL)`)
 	svc := NewLedgerService(db)
-	open, err := svc.ClosingFor(1, "2026-10-02")
+	open, err := svc.ClosingFor(context.Background(), 1, "2026-10-02")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if open.Closed || open.Opening != 1000 || open.CashIn != 500 || open.CashOut != 175 || open.Expected != 1325 {
 		t.Fatalf("incorrect open-day cash calculation: %+v", open)
 	}
-	saved, err := svc.Close(1, 1, "2026-10-02", 1320, nil, "five short")
+	saved, err := svc.Close(context.Background(), 1, 1, "2026-10-02", 1320, nil, "five short")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,14 +83,14 @@ func TestCashClosingSnapshot(t *testing.T) {
 	// Corrections after closing must not alter the snapshot or its explanation.
 	exec("UPDATE payments SET amount = amount + 200 WHERE company_id = 1")
 	exec("DELETE FROM expensess WHERE payment_method = 'Cash'")
-	reopened, err := svc.ClosingFor(1, "2026-10-02")
+	reopened, err := svc.ClosingFor(context.Background(), 1, "2026-10-02")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(saved, reopened) {
 		t.Fatalf("snapshot changed:\n saved %+v\n read %+v", saved, reopened)
 	}
-	recent, err := svc.RecentClosings(1, 1)
+	recent, err := svc.RecentClosings(context.Background(), 1, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,14 +99,14 @@ func TestCashClosingSnapshot(t *testing.T) {
 	}
 	// A deliberate recount can replace the snapshot, including an explicit zero float.
 	zero := 0.0
-	recount, err := svc.Close(1, 1, "2026-10-02", 550, &zero, "recount")
+	recount, err := svc.Close(context.Background(), 1, 1, "2026-10-02", 550, &zero, "recount")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if recount.Opening != 0 || recount.Expected != 550 || recount.Difference != 0 {
 		t.Fatalf("incorrect recount: %+v", recount)
 	}
-	reopened, err = svc.ClosingFor(1, "2026-10-02")
+	reopened, err = svc.ClosingFor(context.Background(), 1, "2026-10-02")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func TestCashClosingSnapshot(t *testing.T) {
 		t.Fatal("recount breakdown was not saved")
 	}
 	// Older rows keep their recorded totals. No current transactions are guessed.
-	legacy, err := svc.ClosingFor(1, "2026-10-01")
+	legacy, err := svc.ClosingFor(context.Background(), 1, "2026-10-01")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestCashClosingSnapshot(t *testing.T) {
 		t.Fatalf("invalid legacy snapshot: %+v", legacy)
 	}
 	// A different company must never see company 1's saved closing.
-	other, err := svc.ClosingFor(2, "2026-10-02")
+	other, err := svc.ClosingFor(context.Background(), 2, "2026-10-02")
 	if err != nil {
 		t.Fatal(err)
 	}

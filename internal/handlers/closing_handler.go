@@ -79,7 +79,7 @@ func (h *ClosingHandler) StartStocktake(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&req)
 
-	id, err := h.stocktake.Start(companyID, int64(c.GetInt("user_id")), req.Note)
+	id, err := h.stocktake.Start(c.Request.Context(), companyID, int64(c.GetInt("user_id")), req.Note)
 	if err != nil {
 		failClosing(c, err, "Failed to start that count")
 		return
@@ -110,7 +110,7 @@ func (h *ClosingHandler) CountItem(c *gin.Context) {
 		return
 	}
 
-	if err := h.stocktake.Count(companyID, stocktakeID, req.ItemID, req.Counted); err != nil {
+	if err := h.stocktake.Count(c.Request.Context(), companyID, stocktakeID, req.ItemID, req.Counted); err != nil {
 		failClosing(c, err, "Failed to record that count")
 		return
 	}
@@ -131,7 +131,7 @@ func (h *ClosingHandler) GetStocktake(c *gin.Context) {
 		return
 	}
 
-	stocktake, err := h.stocktake.Get(companyID, stocktakeID)
+	stocktake, err := h.stocktake.Get(c.Request.Context(), companyID, stocktakeID)
 	if err != nil {
 		failClosing(c, err, "Failed to load that count")
 		return
@@ -153,7 +153,7 @@ func (h *ClosingHandler) ApplyStocktake(c *gin.Context) {
 		return
 	}
 
-	adjusted, err := h.stocktake.Apply(companyID, int64(c.GetInt("user_id")), stocktakeID)
+	adjusted, err := h.stocktake.Apply(c.Request.Context(), companyID, int64(c.GetInt("user_id")), stocktakeID)
 	if err != nil {
 		failClosing(c, err, "Failed to finish that count")
 		return
@@ -175,7 +175,7 @@ func (h *ClosingHandler) AbandonStocktake(c *gin.Context) {
 		return
 	}
 
-	if err := h.stocktake.Abandon(companyID, stocktakeID); err != nil {
+	if err := h.stocktake.Abandon(c.Request.Context(), companyID, stocktakeID); err != nil {
 		failClosing(c, err, "Failed to discard that count")
 		return
 	}
@@ -194,7 +194,7 @@ func (h *ClosingHandler) GetDayClosing(c *gin.Context) {
 		return
 	}
 
-	closing, err := h.ledger.ClosingFor(companyID, closingDate(c.Query("date")))
+	closing, err := h.ledger.ClosingFor(c.Request.Context(), companyID, closingDate(c.Query("date")))
 	if err != nil {
 		failClosing(c, err, "Failed to load that day")
 		return
@@ -224,7 +224,7 @@ func (h *ClosingHandler) CloseDay(c *gin.Context) {
 	}
 
 	closing, err := h.ledger.Close(
-		companyID, int64(c.GetInt("user_id")),
+		c.Request.Context(), companyID, int64(c.GetInt("user_id")),
 		closingDate(req.Date), req.Counted, req.Opening, req.Note,
 	)
 	if err != nil {
@@ -243,7 +243,7 @@ func (h *ClosingHandler) GetRecentClosings(c *gin.Context) {
 		return
 	}
 
-	closings, err := h.ledger.RecentClosings(companyID, mustAtoi(c.Query("limit")))
+	closings, err := h.ledger.RecentClosings(c.Request.Context(), companyID, mustAtoi(c.Query("limit")))
 	if err != nil {
 		failClosing(c, err, "Failed to load those days")
 		return

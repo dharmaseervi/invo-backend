@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 
@@ -55,6 +56,7 @@ type PurchaseBillRequest struct {
 // shop would have stock it cannot account for and a supplier balance that does not
 // match the paperwork.
 func (s *PurchaseService) RecordBill(
+	ctx context.Context,
 	companyID, userID int64,
 	req PurchaseBillRequest,
 ) (int64, error) {
@@ -68,7 +70,7 @@ func (s *PurchaseService) RecordBill(
 		return 0, PurchaseInputError{"Paid amount cannot be negative."}
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -80,7 +82,7 @@ func (s *PurchaseService) RecordBill(
 	// that is what the balance belongs to — the same reason a customer's ledger is
 	// guarded by the client row.
 	var supplierOK bool
-	err = tx.QueryRow(
+	err = tx.QueryRowContext(ctx,
 		`SELECT TRUE FROM suppliers WHERE id = $1 AND company_id = $2 FOR UPDATE`,
 		req.SupplierID, companyID,
 	).Scan(&supplierOK)
@@ -114,7 +116,7 @@ func (s *PurchaseService) RecordBill(
 		// Scoped to the company: an item id from the request is not trusted to belong
 		// to this business just because the company id does.
 		var itemOK bool
-		if err := tx.QueryRow(
+		if err := tx.QueryRowContext(ctx,
 			`SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND company_id = $2)`,
 			line.ItemID, companyID,
 		).Scan(&itemOK); err != nil {
@@ -144,7 +146,7 @@ func (s *PurchaseService) RecordBill(
 	// while the bill list shows this same bill unpaid, and nobody can say which to
 	// believe. Settling the advance here keeps what each bill owes and what the supplier
 	// is owed overall as two views of one number.
-	credit, err := supplierCredit(tx, companyID, req.SupplierID)
+	credit, err := supplierCredit(ctx, tx, companyID, req.SupplierID)
 	if err != nil {
 		return 0, err
 	}
@@ -167,7 +169,7 @@ func (s *PurchaseService) RecordBill(
 	}
 
 	var billID int64
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO purchase_bills (
 			company_id, user_id, supplier_id, bill_number, bill_date, due_date,
 			subtotal, tax, total, paid_amount, remaining_amount, status, notes
@@ -189,7 +191,7 @@ func (s *PurchaseService) RecordBill(
 	}
 
 	for _, l := range lines {
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO purchase_bill_items (bill_id, item_id, qty, rate, tax_rate, total)
 			VALUES ($1,$2,$3,$4,$5,$6)
 		`, billID, l.line.ItemID, l.line.Qty, l.line.Rate, l.line.TaxRate, l.total.Float64()); err != nil {
@@ -203,7 +205,7 @@ func (s *PurchaseService) RecordBill(
 		// bill in their hand. An average is defensible too, but it cannot be found on
 		// any piece of paper they have.
 		var previous, updated int
-		if err := tx.QueryRow(`
+		if err := tx.QueryRowContext(ctx, `
 			UPDATE items
 			SET quantity = quantity + $1,
 			    cost_price = $2,
@@ -214,7 +216,7 @@ func (s *PurchaseService) RecordBill(
 			return 0, err
 		}
 
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO stock_movements
 				(item_id, company_id, user_id, movement_type, quantity_change,
 				 previous_quantity, new_quantity, reference, note)
@@ -236,7 +238,7 @@ func (s *PurchaseService) RecordBill(
 		if method == "" {
 			method = "cash"
 		}
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO supplier_payments (company_id, supplier_id, bill_id, amount, method, paid_on)
 			VALUES ($1,$2,$3,$4,$5, COALESCE($6::date, CURRENT_DATE))
 		`, companyID, req.SupplierID, billID, paidNow.Float64(), method, req.BillDate); err != nil {
@@ -263,6 +265,7 @@ type SupplierPaymentRequest struct {
 // Oldest first, like the customer side: it is what a shop means by "paying off the
 // account", and it keeps the ageing honest.
 func (s *PurchaseService) PaySupplier(
+	ctx context.Context,
 	companyID int64,
 	req SupplierPaymentRequest,
 ) (int64, error) {
@@ -273,7 +276,7 @@ func (s *PurchaseService) PaySupplier(
 		return 0, PurchaseInputError{"Say how it was paid — cash, UPI, bank transfer."}
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -285,7 +288,7 @@ func (s *PurchaseService) PaySupplier(
 	// that is what the balance belongs to — the same reason a customer's ledger is
 	// guarded by the client row.
 	var supplierOK bool
-	err = tx.QueryRow(
+	err = tx.QueryRowContext(ctx,
 		`SELECT TRUE FROM suppliers WHERE id = $1 AND company_id = $2 FOR UPDATE`,
 		req.SupplierID, companyID,
 	).Scan(&supplierOK)
@@ -298,7 +301,7 @@ func (s *PurchaseService) PaySupplier(
 	remaining := money.FromFloat(req.Amount).Round()
 
 	// The bills to settle: the one named, or every unpaid one oldest first.
-	dues, err := openSupplierBills(tx, companyID, req.SupplierID, req.BillID, nil)
+	dues, err := openSupplierBills(ctx, tx, companyID, req.SupplierID, req.BillID, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -306,7 +309,7 @@ func (s *PurchaseService) PaySupplier(
 		return 0, PurchaseInputError{"That bill isn't this supplier's, or it is already settled."}
 	}
 
-	remaining, err = settleSupplierBills(tx, dues, remaining)
+	remaining, err = settleSupplierBills(ctx, tx, dues, remaining)
 	if err != nil {
 		return 0, err
 	}
@@ -318,11 +321,11 @@ func (s *PurchaseService) PaySupplier(
 	// while a bill of theirs still showed unpaid — and the two figures a shopkeeper
 	// checks, what each bill owes and what the supplier is owed, would stop agreeing.
 	if req.BillID != nil && remaining.GreaterThan(money.Zero()) {
-		others, err := openSupplierBills(tx, companyID, req.SupplierID, nil, req.BillID)
+		others, err := openSupplierBills(ctx, tx, companyID, req.SupplierID, nil, req.BillID)
 		if err != nil {
 			return 0, err
 		}
-		if remaining, err = settleSupplierBills(tx, others, remaining); err != nil {
+		if remaining, err = settleSupplierBills(ctx, tx, others, remaining); err != nil {
 			return 0, err
 		}
 	}
@@ -331,7 +334,7 @@ func (s *PurchaseService) PaySupplier(
 	// than refused: paying ahead is ordinary, and refusing it would send somebody back
 	// to a paper book.
 	var paymentID int64
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO supplier_payments
 			(company_id, supplier_id, bill_id, amount, method, reference, notes, paid_on)
 		VALUES ($1,$2,$3,$4,$5,$6,$7, COALESCE($8::date, CURRENT_DATE))
@@ -366,9 +369,9 @@ func isDuplicateBillNumber(err error) bool {
 // Everything paid, less everything the bills account for. It is a derived figure rather
 // than a stored balance: the advance is already recorded as a payment, and a second
 // place to keep the same fact is a second place for it to go wrong.
-func supplierCredit(tx *sql.Tx, companyID, supplierID int64) (money.Amount, error) {
+func supplierCredit(ctx context.Context, tx *sql.Tx, companyID, supplierID int64) (money.Amount, error) {
 	var paid, applied float64
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(ctx, `
 		SELECT
 			COALESCE((
 				SELECT SUM(amount) FROM supplier_payments
@@ -399,6 +402,7 @@ type supplierDue struct {
 // onlyBill restricts it to one bill; excludeBill leaves one out, for spreading what is
 // left of a payment over everything else.
 func openSupplierBills(
+	ctx context.Context,
 	tx *sql.Tx,
 	companyID, supplierID int64,
 	onlyBill, excludeBill *int64,
@@ -417,7 +421,7 @@ func openSupplierBills(
 	}
 	query += " ORDER BY bill_date ASC, id ASC FOR UPDATE"
 
-	rows, err := tx.Query(query, args...)
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -439,6 +443,7 @@ func openSupplierBills(
 // settleSupplierBills pays off bills in the order given and returns what is left of the
 // money. Anything returned is an advance the supplier is holding.
 func settleSupplierBills(
+	ctx context.Context,
 	tx *sql.Tx,
 	dues []supplierDue,
 	amount money.Amount,
@@ -448,7 +453,7 @@ func settleSupplierBills(
 			break
 		}
 		applied := money.Min(amount, d.remaining)
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			UPDATE purchase_bills
 			SET paid_amount = paid_amount + $1,
 			    remaining_amount = remaining_amount - $1,

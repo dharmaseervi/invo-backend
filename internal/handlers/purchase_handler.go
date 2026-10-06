@@ -201,7 +201,7 @@ func (h *PurchaseHandler) RecordBill(c *gin.Context) {
 		return
 	}
 
-	id, err := h.service.RecordBill(companyID, int64(c.GetInt("user_id")), req)
+	id, err := h.service.RecordBill(c.Request.Context(), companyID, int64(c.GetInt("user_id")), req)
 	if err != nil {
 		fail(c, err, "Failed to record that bill")
 		return
@@ -388,7 +388,7 @@ func (h *PurchaseHandler) PaySupplier(c *gin.Context) {
 		return
 	}
 
-	id, err := h.service.PaySupplier(companyID, req)
+	id, err := h.service.PaySupplier(c.Request.Context(), companyID, req)
 	if err != nil {
 		fail(c, err, "Failed to record that payment")
 		return
@@ -421,14 +421,14 @@ func (h *PurchaseHandler) SupplierLedger(c *gin.Context) {
 
 	// Totals first: it is also the check that this supplier is the company's, and
 	// there is no sense reading a statement we are about to refuse.
-	summary, err := h.service.SupplierLedgerTotals(companyID, supplierID)
+	summary, err := h.service.SupplierLedgerTotals(c.Request.Context(), companyID, supplierID)
 	if err != nil {
 		fail(c, err, "Failed to load that statement")
 		return
 	}
 
 	entries, err := h.service.SupplierLedger(
-		companyID, supplierID,
+		c.Request.Context(), companyID, supplierID,
 		clampPageSize(mustAtoi(c.Query("limit")), 0),
 		mustAtoi(c.Query("offset")),
 	)
@@ -455,7 +455,7 @@ func (h *PurchaseHandler) SupplierLedgerSummary(c *gin.Context) {
 		return
 	}
 
-	summary, err := h.service.SupplierLedgerTotals(companyID, supplierID)
+	summary, err := h.service.SupplierLedgerTotals(c.Request.Context(), companyID, supplierID)
 	if err != nil {
 		fail(c, err, "Failed to load that statement")
 		return

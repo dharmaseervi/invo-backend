@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"strings"
@@ -61,7 +62,7 @@ const cashMethods = `('cash', 'cash payment')`
 // back. Expenses count only where they were marked as paid in cash: an expense with no
 // method recorded is an unknown, and treating unknowns as cash would take money out of
 // the drawer figure that may never have left it.
-func (s *LedgerService) drawerFor(companyID int64, date string) (
+func (s *LedgerService) drawerFor(ctx context.Context, companyID int64, date string) (
 	opening, cashIn, cashOut float64,
 	inLines, outLines []CashLine,
 	err error,
@@ -72,7 +73,7 @@ func (s *LedgerService) drawerFor(companyID int64, date string) (
 
 	// What yesterday's count left behind. The drawer carries over; a shop does not
 	// empty it to the rupee every night.
-	err = s.db.QueryRow(`
+	err = s.db.QueryRowContext(ctx, `
 		SELECT COALESCE((
 			SELECT counted_cash FROM day_closings
 			WHERE company_id = $1 AND closing_date < $2::date
@@ -86,7 +87,7 @@ func (s *LedgerService) drawerFor(companyID int64, date string) (
 	// An opening float that was set by hand on this day's own closing wins: somebody
 	// counted the drawer this morning and said so.
 	var storedOpening sql.NullFloat64
-	err = s.db.QueryRow(`
+	err = s.db.QueryRowContext(ctx, `
 		SELECT opening_cash FROM day_closings
 		WHERE company_id = $1 AND closing_date = $2::date
 	`, companyID, date).Scan(&storedOpening)
@@ -102,7 +103,7 @@ func (s *LedgerService) drawerFor(companyID int64, date string) (
 	add := func(lines *[]CashLine, total *float64, label, query string) error {
 		var amount sql.NullFloat64
 		var count int
-		if scanErr := s.db.QueryRow(query, companyID, date).Scan(&amount, &count); scanErr != nil {
+		if scanErr := s.db.QueryRowContext(ctx, query, companyID, date).Scan(&amount, &count); scanErr != nil {
 			return scanErr
 		}
 		if count == 0 {
@@ -147,10 +148,10 @@ func (s *LedgerService) drawerFor(companyID int64, date string) (
 
 // ClosingFor returns the recorded snapshot for closed days. Only open days use live
 // transactions, so later corrections cannot change one side of a saved reconciliation.
-func (s *LedgerService) ClosingFor(companyID int64, date string) (DayClosing, error) {
+func (s *LedgerService) ClosingFor(ctx context.Context, companyID int64, date string) (DayClosing, error) {
 	out := DayClosing{Date: date}
 	var inJSON, outJSON []byte
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT opening_cash, cash_in, cash_out, expected_cash, counted_cash,
 		       difference, COALESCE(note, ''), in_breakdown, out_breakdown
 		FROM day_closings
@@ -175,7 +176,7 @@ func (s *LedgerService) ClosingFor(companyID int64, date string) (DayClosing, er
 		return DayClosing{}, err
 	}
 
-	opening, cashIn, cashOut, inLines, outLines, err := s.drawerFor(companyID, date)
+	opening, cashIn, cashOut, inLines, outLines, err := s.drawerFor(ctx, companyID, date)
 	if err != nil {
 		return DayClosing{}, err
 	}
@@ -226,6 +227,7 @@ func closingBreakdown(data []byte, label string, total float64) ([]CashLine, err
 // Closing the same day twice replaces the figure rather than adding a second one —
 // recounting is correcting the first count, not a separate event.
 func (s *LedgerService) Close(
+	ctx context.Context,
 	companyID, userID int64,
 	date string,
 	counted float64,
@@ -239,7 +241,7 @@ func (s *LedgerService) Close(
 		return DayClosing{}, LedgerInputError{"Opening cash cannot be negative."}
 	}
 
-	carried, cashIn, cashOut, inLines, outLines, err := s.drawerFor(companyID, date)
+	carried, cashIn, cashOut, inLines, outLines, err := s.drawerFor(ctx, companyID, date)
 	if err != nil {
 		return DayClosing{}, err
 	}
@@ -261,7 +263,7 @@ func (s *LedgerService) Close(
 		return DayClosing{}, err
 	}
 
-	_, err = s.db.Exec(`
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO day_closings
 			(company_id, user_id, closing_date, opening_cash, cash_in, cash_out,
 			 expected_cash, counted_cash, difference, note, in_breakdown, out_breakdown)
@@ -304,12 +306,12 @@ func (s *LedgerService) Close(
 //
 // These come from what each closing stored, not from the figures as they stand now: the
 // point of the list is what was found on the day.
-func (s *LedgerService) RecentClosings(companyID int64, limit int) ([]DayClosing, error) {
+func (s *LedgerService) RecentClosings(ctx context.Context, companyID int64, limit int) ([]DayClosing, error) {
 	if limit <= 0 || limit > 90 {
 		limit = 30
 	}
 
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT TO_CHAR(closing_date, 'YYYY-MM-DD'), opening_cash, cash_in, cash_out,
 		       expected_cash, counted_cash, difference, COALESCE(note, '')
 		FROM day_closings

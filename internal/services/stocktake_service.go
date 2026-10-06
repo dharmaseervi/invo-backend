@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 )
@@ -55,9 +56,9 @@ type Stocktake struct {
 // Start opens a count. One draft at a time per company: two people counting the same
 // floor into two sessions would each apply their own variance, and the second would
 // correct stock the first had already corrected.
-func (s *StocktakeService) Start(companyID, userID int64, note string) (int64, error) {
+func (s *StocktakeService) Start(ctx context.Context, companyID, userID int64, note string) (int64, error) {
 	var existing int64
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT id FROM stocktakes
 		WHERE company_id = $1 AND status = 'draft'
 		ORDER BY started_at DESC LIMIT 1
@@ -71,7 +72,7 @@ func (s *StocktakeService) Start(companyID, userID int64, note string) (int64, e
 	}
 
 	var id int64
-	err = s.db.QueryRow(`
+	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO stocktakes (company_id, user_id, note)
 		VALUES ($1, $2, $3) RETURNING id
 	`, companyID, userID, strings.TrimSpace(note)).Scan(&id)
@@ -83,13 +84,13 @@ func (s *StocktakeService) Start(companyID, userID int64, note string) (int64, e
 // The expected figure is read now and stored with the line, not looked up when the
 // count is applied. It is what the person had in front of them with the item in their
 // hands, and keeping it is what lets the variance still mean something tomorrow.
-func (s *StocktakeService) Count(companyID, stocktakeID, itemID int64, counted int) error {
+func (s *StocktakeService) Count(ctx context.Context, companyID, stocktakeID, itemID int64, counted int) error {
 	if counted < 0 {
 		return StocktakeInputError{"A count cannot be negative."}
 	}
 
 	var status string
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT status FROM stocktakes WHERE id = $1 AND company_id = $2`,
 		stocktakeID, companyID,
 	).Scan(&status)
@@ -104,7 +105,7 @@ func (s *StocktakeService) Count(companyID, stocktakeID, itemID int64, counted i
 	}
 
 	var expected int
-	err = s.db.QueryRow(
+	err = s.db.QueryRowContext(ctx,
 		`SELECT quantity FROM items WHERE id = $1 AND company_id = $2`,
 		itemID, companyID,
 	).Scan(&expected)
@@ -117,7 +118,7 @@ func (s *StocktakeService) Count(companyID, stocktakeID, itemID int64, counted i
 
 	// Counting the same item twice replaces the first figure — somebody recounting a
 	// shelf is correcting themselves, not adding to it.
-	_, err = s.db.Exec(`
+	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO stocktake_lines (stocktake_id, item_id, expected, counted)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (stocktake_id, item_id)
@@ -129,11 +130,11 @@ func (s *StocktakeService) Count(companyID, stocktakeID, itemID int64, counted i
 }
 
 // Get reads a count and its lines.
-func (s *StocktakeService) Get(companyID, stocktakeID int64) (Stocktake, error) {
+func (s *StocktakeService) Get(ctx context.Context, companyID, stocktakeID int64) (Stocktake, error) {
 	var out Stocktake
 	var note, appliedAt sql.NullString
 
-	err := s.db.QueryRow(`
+	err := s.db.QueryRowContext(ctx, `
 		SELECT id, status, COALESCE(note, ''),
 		       TO_CHAR(started_at, 'YYYY-MM-DD"T"HH24:MI:SSZ'),
 		       TO_CHAR(applied_at, 'YYYY-MM-DD"T"HH24:MI:SSZ')
@@ -148,7 +149,7 @@ func (s *StocktakeService) Get(companyID, stocktakeID int64) (Stocktake, error) 
 	out.Note = note.String
 	out.AppliedAt = appliedAt.String
 
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT l.item_id, i.name, COALESCE(i.unit, ''), l.expected, l.counted
 		FROM stocktake_lines l
 		JOIN items i ON i.id = l.item_id
@@ -187,15 +188,15 @@ func (s *StocktakeService) Get(companyID, stocktakeID int64) (Stocktake, error) 
 // would quietly undo those sales; applying the variance leaves them intact and still
 // corrects what the count found. The difference only shows up on a busy afternoon, which
 // is exactly when nobody would notice it going wrong.
-func (s *StocktakeService) Apply(companyID, userID, stocktakeID int64) (int, error) {
-	tx, err := s.db.Begin()
+func (s *StocktakeService) Apply(ctx context.Context, companyID, userID, stocktakeID int64) (int, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 
 	var status string
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx, `
 		SELECT status FROM stocktakes WHERE id = $1 AND company_id = $2 FOR UPDATE
 	`, stocktakeID, companyID).Scan(&status)
 	if err == sql.ErrNoRows {
@@ -208,7 +209,7 @@ func (s *StocktakeService) Apply(companyID, userID, stocktakeID int64) (int, err
 		return 0, StocktakeInputError{"That count has already been finished."}
 	}
 
-	rows, err := tx.Query(`
+	rows, err := tx.QueryContext(ctx, `
 		SELECT item_id, expected, counted FROM stocktake_lines
 		WHERE stocktake_id = $1 AND counted <> expected
 	`, stocktakeID)
@@ -237,7 +238,7 @@ func (s *StocktakeService) Apply(companyID, userID, stocktakeID int64) (int, err
 
 	for _, adj := range adjustments {
 		var previous, updated int
-		if err := tx.QueryRow(`
+		if err := tx.QueryRowContext(ctx, `
 			UPDATE items
 			SET quantity = GREATEST(quantity + $1, 0), updated_at = NOW()
 			WHERE id = $2 AND company_id = $3
@@ -246,7 +247,7 @@ func (s *StocktakeService) Apply(companyID, userID, stocktakeID int64) (int, err
 			return 0, err
 		}
 
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO stock_movements
 				(item_id, company_id, user_id, movement_type, quantity_change,
 				 previous_quantity, new_quantity, reference, note)
@@ -257,7 +258,7 @@ func (s *StocktakeService) Apply(companyID, userID, stocktakeID int64) (int, err
 		}
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE stocktakes SET status = 'applied', applied_at = NOW() WHERE id = $1
 	`, stocktakeID); err != nil {
 		return 0, err
@@ -267,8 +268,8 @@ func (s *StocktakeService) Apply(companyID, userID, stocktakeID int64) (int, err
 }
 
 // Abandon throws a count away without touching stock.
-func (s *StocktakeService) Abandon(companyID, stocktakeID int64) error {
-	result, err := s.db.Exec(`
+func (s *StocktakeService) Abandon(ctx context.Context, companyID, stocktakeID int64) error {
+	result, err := s.db.ExecContext(ctx, `
 		UPDATE stocktakes SET status = 'abandoned'
 		WHERE id = $1 AND company_id = $2 AND status = 'draft'
 	`, stocktakeID, companyID)

@@ -4,6 +4,7 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 
 	"invo-server/internal/config"
 	database "invo-server/internal/db"
@@ -91,6 +92,11 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	// 20/sec with a burst of 40 is far above what any screen does — including a fast
 	// scroll through a paged list — while still bounding a runaway client.
 	protected.Use(
+		// Every request gets a deadline. A slow query used to hold its database
+		// connection until it finished however long that took, with the caller long
+		// gone — and it takes few of those to stop the shop billing anybody at all.
+		// 30s is far above what any screen needs and still bounds a runaway.
+		middleware.RequestDeadline(30*time.Second),
 		middleware.AuthMiddleware([]byte(cfg.JWT.Secret), db.DB),
 		middleware.UserRateLimiter(20, 40),
 		// What this account may do in the business the request is about. Runs for

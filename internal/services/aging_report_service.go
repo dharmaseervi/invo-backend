@@ -43,7 +43,7 @@ func GenerateAgingReport(db *sql.DB, companyID int64) (*models.AgingReportRespon
 			return nil, err
 		}
 
-		daysOverdue := int(today.Sub(dueDate.Truncate(24 * time.Hour)).Hours() / 24)
+		daysOverdue := int(today.Sub(dueDate.Truncate(24*time.Hour)).Hours() / 24)
 
 		row, exists := clientByID[clientID]
 		if !exists {
