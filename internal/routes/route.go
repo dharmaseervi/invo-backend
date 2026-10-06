@@ -230,6 +230,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// Before the :id route, or "summary" is read as a credit note id.
 		protected.GET("/credit-notes/summary", creditNoteHandler.GetSummary)
 		protected.GET("/credit-notes/:id", creditNoteHandler.GetByID)
+		// Deciding which invoice a credit note settles.
+		protected.POST("/credit-notes/:id/apply", creditNoteHandler.ApplyToInvoice)
 
 		// Dashboard routes
 		protected.GET("/dashboard", dashboard.GetDashboard)

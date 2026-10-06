@@ -506,3 +506,112 @@ func (s *CreditNoteService) Summary(
 	)
 	return out, err
 }
+
+// CreditNoteInputError already exists for problems the person can fix; applying a
+// credit note reuses it.
+
+// ApplyToInvoice puts a credit note's remaining balance against one of the customer's
+// unpaid invoices.
+//
+// No ledger entry is written here, deliberately. Issuing the credit note already
+// credited the customer for its full value — that is what a credit note is. Applying it
+// decides which invoice the credit settles, and writing a second credit would hand the
+// customer the same money twice and quietly shrink the shop's receivables.
+//
+// Both rows are locked while the figures are read and changed, so two people applying
+// the same credit note at once cannot each spend the whole balance.
+func (s *CreditNoteService) ApplyToInvoice(
+	companyID, creditNoteID, invoiceID int64,
+	amount float64,
+) (applied float64, err error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var balance float64
+	var status string
+	var clientID int64
+	err = tx.QueryRow(`
+		SELECT balance, status, client_id FROM credit_notes
+		WHERE id = $1 AND company_id = $2
+		FOR UPDATE
+	`, creditNoteID, companyID).Scan(&balance, &status, &clientID)
+	if err == sql.ErrNoRows {
+		return 0, CreditNoteInputError{"That credit note isn't this company's."}
+	}
+	if err != nil {
+		return 0, err
+	}
+	if status == "cancelled" {
+		return 0, CreditNoteInputError{"That credit note has been cancelled."}
+	}
+	if balance <= 0 {
+		return 0, CreditNoteInputError{"That credit note has nothing left on it."}
+	}
+
+	// The invoice has to be the same customer's. A credit note belongs to whoever
+	// returned the goods; spending it on somebody else's bill would move money between
+	// two customers' accounts with nothing recording that it happened.
+	var remaining float64
+	var invoiceStatus string
+	err = tx.QueryRow(`
+		SELECT COALESCE(remaining_amount, total - COALESCE(paid_amount, 0)), status
+		FROM invoices
+		WHERE id = $1 AND company_id = $2 AND client_id = $3
+		FOR UPDATE
+	`, invoiceID, companyID, clientID).Scan(&remaining, &invoiceStatus)
+	if err == sql.ErrNoRows {
+		return 0, CreditNoteInputError{"That invoice isn't this customer's."}
+	}
+	if err != nil {
+		return 0, err
+	}
+	if invoiceStatus == "cancelled" {
+		return 0, CreditNoteInputError{"That invoice has been cancelled."}
+	}
+	if invoiceStatus == "draft" {
+		return 0, CreditNoteInputError{"Issue that invoice before putting credit against it."}
+	}
+	if remaining <= 0 {
+		return 0, CreditNoteInputError{"That invoice is already settled."}
+	}
+
+	// Asked for nothing in particular: as much of the credit as the invoice can take.
+	// That is what somebody means by "apply this to that".
+	applied = amount
+	if applied <= 0 {
+		applied = balance
+	}
+	if applied > balance {
+		return 0, CreditNoteInputError{"That's more than the credit note has left."}
+	}
+	if applied > remaining {
+		applied = remaining
+	}
+
+	if _, err = tx.Exec(`
+		UPDATE invoices
+		SET paid_amount = COALESCE(paid_amount, 0) + $2,
+		    remaining_amount = COALESCE(remaining_amount, total - COALESCE(paid_amount, 0)) - $2,
+		    status = CASE
+		        WHEN COALESCE(remaining_amount, total - COALESCE(paid_amount, 0)) - $2 <= 0
+		        THEN 'paid' ELSE 'partial' END,
+		    updated_at = NOW()
+		WHERE id = $1
+	`, invoiceID, applied); err != nil {
+		return 0, err
+	}
+
+	if _, err = tx.Exec(`
+		UPDATE credit_notes
+		SET balance = balance - $2,
+		    status = CASE WHEN balance - $2 <= 0 THEN 'settled' ELSE status END
+		WHERE id = $1
+	`, creditNoteID, applied); err != nil {
+		return 0, err
+	}
+
+	return applied, tx.Commit()
+}

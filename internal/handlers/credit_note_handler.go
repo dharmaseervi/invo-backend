@@ -200,3 +200,59 @@ func (h *CreditNoteHandler) GetSummary(c *gin.Context) {
 
 	c.JSON(http.StatusOK, summary)
 }
+
+// ApplyToInvoice puts a credit note's balance against one of the customer's invoices.
+//
+// POST /api/v1/credit-notes/:id/apply?company_id=1
+//
+// Body: {"invoice_id": 42, "amount": 500}. Amount may be left out, which applies as much
+// of the credit as the invoice can take — what somebody means by "apply this to that".
+func (h *CreditNoteHandler) ApplyToInvoice(c *gin.Context) {
+	companyID, err := strconv.ParseInt(c.Query("company_id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
+		return
+	}
+	owned, err := companyBelongsToUser(h.db, companyID, c.GetInt("user_id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized company access"})
+		return
+	}
+
+	creditNoteID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid credit note"})
+		return
+	}
+
+	var req struct {
+		InvoiceID int64   `json:"invoice_id"`
+		Amount    float64 `json:"amount"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+	if req.InvoiceID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Choose an invoice to put it against."})
+		return
+	}
+
+	applied, err := h.service.ApplyToInvoice(companyID, creditNoteID, req.InvoiceID, req.Amount)
+	if err != nil {
+		var input services.CreditNoteInputError
+		if errors.As(err, &input) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": input.Msg})
+			return
+		}
+		log.Println("failed to apply credit note:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply that credit"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Credit applied", "applied": applied})
+}
