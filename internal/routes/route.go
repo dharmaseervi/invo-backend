@@ -124,6 +124,9 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// Client routes
 		protected.POST("/clients", clientHandler.CreateClient)
 		protected.GET("/companies/:companyId/clients", clientHandler.GetClients)
+		// The Cash/UPI account a walk-in sale is billed to, found by name rather than
+		// by the app searching a list it would otherwise have to hold all of.
+		protected.POST("/companies/:companyId/quick-sale-client", clientHandler.QuickSaleClient)
 		protected.PUT("/clients/:clientId", clientHandler.UpdateClient)
 		protected.DELETE("/clients/:clientId", clientHandler.DeleteClient)
 		protected.GET("/clients/:clientId/address", clientAddressHandler.GetClientAddress)

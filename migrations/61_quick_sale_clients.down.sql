@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS clients_one_quick_sale_account_per_company;

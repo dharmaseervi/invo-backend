@@ -262,3 +262,77 @@ func (h *clientHandler) DeleteClient(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Client deleted"})
 }
+
+// QuickSaleClient returns the company's Cash or UPI account, creating it if this is the
+// first walk-in sale.
+//
+// POST /api/v1/companies/:companyId/quick-sale-client  {"account": "Cash"}
+//
+// The app used to do this by fetching every client and looking through the list, which
+// is why the client list could never be paged: the account it needed might be on page
+// four. Asking the server for it by name costs one indexed lookup and lets the list
+// page like every other list.
+//
+// Find-or-create in one statement, so two tills asking at once end up with the same
+// account rather than one each.
+func (h *clientHandler) QuickSaleClient(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	companyID := c.Param("companyId")
+
+	var exists bool
+	h.db.DB.QueryRowContext(c.Request.Context(), `
+        SELECT EXISTS(
+            SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
+            UNION ALL
+            SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2
+        )
+    `, companyID, userID).Scan(&exists)
+	if !exists {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized company access"})
+		return
+	}
+
+	var req struct {
+		Account string `json:"account"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	// Only the two. Anything else would create an ordinary customer through a door
+	// meant for walk-in accounts, and name it whatever the caller asked for.
+	name := strings.TrimSpace(req.Account)
+	switch strings.ToLower(name) {
+	case "cash":
+		name = "Cash"
+	case "upi":
+		name = "UPI"
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Quick sale accounts are Cash and UPI."})
+		return
+	}
+
+	// ON CONFLICT against the unique index, so a second caller gets the existing row
+	// rather than an error or a duplicate. DO UPDATE rather than DO NOTHING because
+	// DO NOTHING returns no row at all when the account is already there.
+	var client models.Client
+	err := h.db.DB.QueryRowContext(c.Request.Context(), `
+        INSERT INTO clients (name, email, phone, address, city, state, pincode, company_id, user_id)
+        VALUES ($1, '', '', '', '', '', '', $2, $3)
+        ON CONFLICT (company_id, lower(name)) WHERE lower(name) IN ('cash', 'upi')
+        DO UPDATE SET updated_at = NOW()
+        RETURNING id, name, COALESCE(email, ''), COALESCE(phone, ''), COALESCE(address, ''),
+                  COALESCE(city, ''), COALESCE(state, ''), COALESCE(pincode, '')
+    `, name, companyID, userID).Scan(
+		&client.ID, &client.Name, &client.Email, &client.Phone,
+		&client.Address, &client.City, &client.State, &client.Pincode,
+	)
+	if err != nil {
+		log.Println("failed to resolve quick sale client:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set up that account"})
+		return
+	}
+
+	c.JSON(http.StatusOK, client)
+}
