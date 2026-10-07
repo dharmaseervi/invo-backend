@@ -45,7 +45,8 @@ func (h *InvoicePDFHandler) GetInvoicePDF(c *gin.Context) {
 
 	// 🔐 Authorization - verify user owns this invoice
 	var authorized bool
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS (
 			SELECT 1
 			FROM invoices i
@@ -61,7 +62,8 @@ func (h *InvoicePDFHandler) GetInvoicePDF(c *gin.Context) {
 	}
 
 	// 📊 Fetch invoice data
-	pdfData, err := services.FetchInvoicePDFData(h.db.DB, invoiceID)
+	pdfData, err := services.FetchInvoicePDFData(c.Request.Context(),
+		h.db.DB, invoiceID)
 	if err != nil {
 		log.Printf("❌ Failed to fetch invoice data: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch invoice data"})

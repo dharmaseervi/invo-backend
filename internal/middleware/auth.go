@@ -121,7 +121,7 @@ func AuthMiddleware(jwtSecret []byte, db *sql.DB) gin.HandlerFunc {
 
 		var validFrom time.Time
 		var currentVersion int
-		switch err := db.QueryRow(
+		switch err := db.QueryRowContext(c.Request.Context(),
 			`SELECT tokens_valid_from, session_version FROM users WHERE id = $1`, userID,
 		).Scan(&validFrom, &currentVersion); {
 		case err == sql.ErrNoRows:

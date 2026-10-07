@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"log"
@@ -63,8 +64,9 @@ func NewPushService(db *sql.DB, cfg *config.Config) *PushService {
 }
 
 // RegisterToken saves (or refreshes) a device token for a user.
-func (s *PushService) RegisterToken(userID int, deviceToken string) error {
-	_, err := s.db.Exec(`
+func (s *PushService) RegisterToken(ctx context.Context, userID int, deviceToken string) error {
+	_, err := s.db.ExecContext(ctx,
+		`
 		INSERT INTO device_tokens (user_id, token, platform)
 		VALUES ($1, $2, 'ios')
 		ON CONFLICT (token) DO UPDATE SET user_id = $1
@@ -73,22 +75,24 @@ func (s *PushService) RegisterToken(userID int, deviceToken string) error {
 }
 
 // UnregisterToken removes a device token (called on logout).
-func (s *PushService) UnregisterToken(userID int, deviceToken string) error {
+func (s *PushService) UnregisterToken(ctx context.Context, userID int, deviceToken string) error {
 	// Scoped to the owner: without user_id, anyone holding a token value could
 	// deregister another account's device and silently kill their notifications.
-	_, err := s.db.Exec(`DELETE FROM device_tokens WHERE token = $1 AND user_id = $2`, deviceToken, userID)
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM device_tokens WHERE token = $1 AND user_id = $2`, deviceToken, userID)
 	return err
 }
 
 // SendToUser pushes a notification to every device registered for a user.
 // Errors are logged, not returned — a failed push should never fail the
 // business action (recording a payment, issuing an invoice) that triggered it.
-func (s *PushService) SendToUser(userID int, title, body string) {
+func (s *PushService) SendToUser(ctx context.Context, userID int, title, body string) {
 	if !s.enabled {
 		return
 	}
 
-	rows, err := s.db.Query(`SELECT token FROM device_tokens WHERE user_id = $1`, userID)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT token FROM device_tokens WHERE user_id = $1`, userID)
 	if err != nil {
 		log.Println("push: failed to load device tokens:", err)
 		return
@@ -115,7 +119,7 @@ func (s *PushService) SendToUser(userID int, title, body string) {
 			Payload:     payload.NewPayload().AlertTitle(title).AlertBody(body).Sound("default"),
 		}
 
-		res, err := s.client.Push(notification)
+		res, err := s.client.PushWithContext(ctx, notification)
 		if err != nil {
 			log.Println("push: send failed (transport error):", err)
 			continue
@@ -130,7 +134,8 @@ func (s *PushService) SendToUser(userID int, title, body string) {
 		// BadDeviceToken / Unregistered → the app was deleted or the token rotated; stop
 		// trying that token instead of failing forever on every future push.
 		if res.Reason == "BadDeviceToken" || res.Reason == "Unregistered" {
-			_, _ = s.db.Exec(`DELETE FROM device_tokens WHERE token = $1`, deviceToken)
+			_, _ = s.db.ExecContext(ctx,
+				`DELETE FROM device_tokens WHERE token = $1`, deviceToken)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"sort"
 	"time"
@@ -10,9 +11,10 @@ import (
 
 // GenerateAgingReport buckets every unpaid/partially-paid invoice for a company by how many
 // days past its due date it is — the standard "who owes me money and for how long" report.
-func GenerateAgingReport(db *sql.DB, companyID int64) (*models.AgingReportResponse, error) {
+func GenerateAgingReport(ctx context.Context, db *sql.DB, companyID int64) (*models.AgingReportResponse, error) {
 
-	rows, err := db.Query(`
+	rows, err := db.QueryContext(ctx,
+		`
 		SELECT i.client_id, c.name, i.due_date, i.remaining_amount
 		FROM invoices i
 		JOIN clients c ON c.id = i.client_id

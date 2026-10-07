@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	database "invo-server/internal/db"
@@ -27,12 +28,16 @@ func TestExpensePaymentMethod(t *testing.T) {
 	schema := fmt.Sprintf("expense_test_%d", time.Now().UnixNano())
 	exec := func(query string) {
 		t.Helper()
-		if _, err := db.Exec(query); err != nil {
+		if _, err := db.ExecContext(context.Background(),
+			query); err != nil {
 			t.Fatal(err)
 		}
 	}
 	exec("CREATE SCHEMA " + schema)
-	defer func() { _, _ = db.Exec("DROP SCHEMA " + schema + " CASCADE") }()
+	defer func() {
+		_, _ = db.ExecContext(context.Background(),
+			"DROP SCHEMA "+schema+" CASCADE")
+	}()
 	exec("SET search_path TO " + schema)
 	exec(`CREATE TABLE companies (id BIGINT, user_id BIGINT);
 	 CREATE TABLE company_members (company_id BIGINT, user_id BIGINT);
@@ -60,7 +65,8 @@ func TestExpensePaymentMethod(t *testing.T) {
 		t.Helper()
 		var method sql.NullString
 		var date string
-		if err := db.QueryRow("SELECT payment_method, date::text FROM expensess WHERE id=1").Scan(&method, &date); err != nil {
+		if err := db.QueryRowContext(context.Background(),
+			"SELECT payment_method, date::text FROM expensess WHERE id=1").Scan(&method, &date); err != nil {
 			t.Fatal(err)
 		}
 		if method.String != want || method.Valid != valid || date != "2026-10-02" {

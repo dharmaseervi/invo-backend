@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"invo-server/internal/models"
 	"invo-server/internal/money"
@@ -15,7 +16,7 @@ func NewPaymentService(db *sql.DB, ledger *LedgerService) *PaymentService {
 	return &PaymentService{db: db, ledger: ledger}
 }
 
-func (s *PaymentService) RecordPaymentTx(
+func (s *PaymentService) RecordPaymentTx(ctx context.Context,
 	tx *sql.Tx,
 	companyID int64,
 	clientID int64,
@@ -24,7 +25,7 @@ func (s *PaymentService) RecordPaymentTx(
 
 	// 1️⃣ Auto-allocate if allocations not provided
 	if len(req.Allocations) == 0 {
-		allocations, err := s.autoAllocateFIFO(
+		allocations, err := s.autoAllocateFIFO(ctx,
 			tx,
 			companyID,
 			clientID,
@@ -55,7 +56,8 @@ func (s *PaymentService) RecordPaymentTx(
 
 	// 3️⃣ Insert payment
 	var paymentID int64
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(ctx,
+		`
 		INSERT INTO payments (
 			company_id,
 			client_id,
@@ -91,7 +93,8 @@ func (s *PaymentService) RecordPaymentTx(
 		// the handler only ever verifies the client, never the invoice ids.
 		var remaining float64
 		var status string
-		err := tx.QueryRow(`
+		err := tx.QueryRowContext(ctx,
+			`
 			SELECT remaining_amount, status
 			FROM invoices
 			WHERE id = $1 AND company_id = $2 AND client_id = $3
@@ -116,7 +119,8 @@ func (s *PaymentService) RecordPaymentTx(
 		}
 
 		// save allocation
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(ctx,
+			`
 			INSERT INTO payment_allocations
 				(payment_id, invoice_id, amount)
 			VALUES ($1,$2,$3)
@@ -127,7 +131,8 @@ func (s *PaymentService) RecordPaymentTx(
 		}
 
 		// update invoice
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(ctx,
+			`
 			UPDATE invoices
 			SET
 				paid_amount = paid_amount + $1,
@@ -154,7 +159,7 @@ func (s *PaymentService) RecordPaymentTx(
 		narration = "Payment received (" + unapplied.String() + " on account)"
 	}
 
-	return s.ledger.AddEntryTx(
+	return s.ledger.AddEntryTx(ctx,
 		tx,
 		companyID,
 		clientID,
@@ -173,14 +178,15 @@ func isPayableStatus(status string) bool {
 	return status == "issued" || status == "partial"
 }
 
-func (s *PaymentService) autoAllocateFIFO(
+func (s *PaymentService) autoAllocateFIFO(ctx context.Context,
 	tx *sql.Tx,
 	companyID int64,
 	clientID int64,
 	amount float64,
 ) ([]models.PaymentAllocationDTO, error) {
 
-	rows, err := tx.Query(`
+	rows, err := tx.QueryContext(ctx,
+		`
 		SELECT id, remaining_amount
 		FROM invoices
 		WHERE client_id = $1

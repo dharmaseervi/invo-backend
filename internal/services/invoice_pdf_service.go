@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -8,7 +9,7 @@ import (
 	"invo-server/internal/pdf"
 )
 
-func FetchInvoicePDFData(
+func FetchInvoicePDFData(ctx context.Context,
 	db *sql.DB,
 	invoiceID int,
 ) (pdf.InvoicePDFData, error) {
@@ -18,7 +19,8 @@ func FetchInvoicePDFData(
 	/* -----------------------------
 	   1️⃣ Fetch invoice + company
 	------------------------------ */
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx,
+		`
 		SELECT
 			i.invoice_number,
 			TO_CHAR(i.invoice_date, 'DD Mon YYYY'),
@@ -55,7 +57,8 @@ func FetchInvoicePDFData(
 	/* -----------------------------
 	   2️⃣ Fetch company address
 	------------------------------ */
-	err = db.QueryRow(`
+	err = db.QueryRowContext(ctx,
+		`
     SELECT
         COALESCE(c.name, ''),
         COALESCE(c.address, ''),
@@ -80,7 +83,8 @@ func FetchInvoicePDFData(
 	/* -----------------------------
 	   3️⃣ Fetch invoice addresses
 	------------------------------ */
-	rows, err := db.Query(`
+	rows, err := db.QueryContext(ctx,
+		`
 		SELECT
 			type,
 			COALESCE(name, ''),
@@ -122,7 +126,8 @@ func FetchInvoicePDFData(
 	/* -----------------------------
 	   4️⃣ Fetch invoice items
 	------------------------------ */
-	itemRows, err := db.Query(`
+	itemRows, err := db.QueryContext(ctx,
+		`
 		SELECT
 			it.name,
 			COALESCE(it.hsn_code, ''),
@@ -194,7 +199,8 @@ func FetchInvoicePDFData(
 	/* -----------------------------
 	   5️⃣ Fetch Default Bank Details
 	------------------------------ */
-	err = db.QueryRow(`
+	err = db.QueryRowContext(ctx,
+		`
         SELECT 
             bank_name, 
             account_number, 

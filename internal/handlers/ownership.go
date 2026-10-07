@@ -1,6 +1,9 @@
 package handlers
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 // Who is allowed to touch a business's records.
 //
@@ -16,9 +19,10 @@ import "database/sql"
 
 // companyBelongsToUser reports whether userID works in companyID.
 // Used to prevent IDOR — callers must reject the request (403/404) when this returns false.
-func companyBelongsToUser(db *sql.DB, companyID int64, userID int) (bool, error) {
+func companyBelongsToUser(ctx context.Context, db *sql.DB, companyID int64, userID int) (bool, error) {
 	var exists bool
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx,
+		`
 		SELECT EXISTS (
 			-- The owner's own row. Checked as well as membership rather than
 			-- instead of it: if a company is ever created without its member row,
@@ -32,9 +36,10 @@ func companyBelongsToUser(db *sql.DB, companyID int64, userID int) (bool, error)
 }
 
 // bankBelongsToUser reports whether bankID's company is one userID works in.
-func bankBelongsToUser(db *sql.DB, bankID int, userID int) (bool, error) {
+func bankBelongsToUser(ctx context.Context, db *sql.DB, bankID int, userID int) (bool, error) {
 	var exists bool
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx,
+		`
 		SELECT EXISTS (
 			SELECT 1 FROM company_bank_accounts b
 			JOIN companies c ON c.id = b.company_id
@@ -46,9 +51,10 @@ func bankBelongsToUser(db *sql.DB, bankID int, userID int) (bool, error) {
 }
 
 // invoiceBelongsToUser reports whether invoiceID's company is one userID works in.
-func invoiceBelongsToUser(db *sql.DB, invoiceID int, userID int) (bool, error) {
+func invoiceBelongsToUser(ctx context.Context, db *sql.DB, invoiceID int, userID int) (bool, error) {
 	var exists bool
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx,
+		`
 		SELECT EXISTS (
 			SELECT 1 FROM invoices i
 			JOIN companies c ON c.id = i.company_id

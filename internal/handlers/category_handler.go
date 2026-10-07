@@ -30,7 +30,8 @@ func (h *CategoryHandler) CreateCategory(c *gin.Context) {
 
 	// Validate company belongs to user
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -44,7 +45,8 @@ func (h *CategoryHandler) CreateCategory(c *gin.Context) {
 	}
 
 	// Insert category
-	_, err := h.db.DB.Exec(`
+	_, err := h.db.DB.ExecContext(c.Request.Context(),
+		`
         INSERT INTO categories (name, user_id, company_id, default_hsn_code, default_tax_rate)
         VALUES ($1, $2, $3, $4, $5)
     `, request.Name, userID, request.CompanyID, request.DefaultHSNCode, request.DefaultTaxRate)
@@ -63,7 +65,8 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
 
 	// Verify ownership
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -76,7 +79,8 @@ func (h *CategoryHandler) GetCategories(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.DB.Query(`
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
         SELECT id, name, user_id, company_id, default_hsn_code, default_tax_rate
         FROM categories
         WHERE company_id = $1

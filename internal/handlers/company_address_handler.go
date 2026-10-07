@@ -24,7 +24,8 @@ func (h *CompanyAddressHandler) GetCompanyAddress(c *gin.Context) {
 
 	var address models.Address
 
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT address_type, name, line1, line2, city, state,
 		       postal_code, country, phone, email, gst_number
 		FROM company_addresses
@@ -68,7 +69,8 @@ func (h *CompanyAddressHandler) SaveCompanyAddress(c *gin.Context) {
 		return
 	}
 
-	_, err := h.db.DB.Exec(`
+	_, err := h.db.DB.ExecContext(c.Request.Context(),
+		`
 		INSERT INTO company_addresses (
 			owner_type, owner_id, address_type,
 			name, line1, line2, city, state,

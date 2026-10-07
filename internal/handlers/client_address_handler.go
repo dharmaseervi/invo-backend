@@ -34,7 +34,8 @@ func (h *ClientAddressHandler) SaveClientAddress(c *gin.Context) {
 		return
 	}
 
-	_, err := h.db.DB.Exec(`
+	_, err := h.db.DB.ExecContext(c.Request.Context(),
+		`
 		INSERT INTO client_addresses (
 			client_id, type,
 			name, line1, line2, city, state,
@@ -99,7 +100,8 @@ func (h *ClientAddressHandler) GetClientAddress(c *gin.Context) {
 
 	var address models.Address
 
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT type, name, line1, line2, city, state,
 		       postal_code, country, phone, email, gst_number
 		FROM client_addresses

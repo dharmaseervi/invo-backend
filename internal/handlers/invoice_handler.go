@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	database "invo-server/internal/db"
@@ -27,14 +28,15 @@ func NewInvoiceHandler(db *database.Database, ledgerService *services.LedgerServ
 	return &InvoiceHandler{db: db, LedgerService: ledgerService, PushService: pushService}
 }
 
-func insertInvoiceAddress(
+func insertInvoiceAddress(ctx context.Context,
 	tx *sql.Tx,
 	invoiceID int,
 	addressType string,
 	addr models.Address,
 ) error {
 
-	_, err := tx.Exec(`
+	_, err := tx.ExecContext(ctx,
+		`
 		INSERT INTO invoice_addresses (
 			invoice_id, type,
 			name, line1, line2, city, state,
@@ -58,7 +60,7 @@ func insertInvoiceAddress(
 	return err
 }
 
-func fetchClientAddress(
+func fetchClientAddress(ctx context.Context,
 	tx *sql.Tx,
 	clientID int,
 	addressType string, // billing | shipping
@@ -66,7 +68,8 @@ func fetchClientAddress(
 
 	var addr models.Address
 
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(ctx,
+		`
 		SELECT
 			type,
 			name,
@@ -128,7 +131,8 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 
 	// 1️⃣ Validate company ownership
 	var companyExists bool
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS (
 			SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -143,7 +147,8 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 
 	// 2️⃣ Validate client
 	var clientExists bool
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS (
 			SELECT 1 FROM clients
 			WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
@@ -158,7 +163,8 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 	// 3️⃣ Validate items
 	for _, item := range req.Items {
 		var itemExists bool
-		err = h.db.DB.QueryRow(`
+		err = h.db.DB.QueryRowContext(c.Request.Context(),
+			`
 			SELECT EXISTS (
 				SELECT 1 FROM items
 				WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
@@ -200,7 +206,7 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 	}
 
 	// 5️⃣ Begin transaction
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 		return
@@ -217,7 +223,8 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 	fy := utils.FinancialYear(invDate)
 
 	var nextNumber int
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		INSERT INTO invoice_counters (company_id, financial_year)
 		VALUES ($1, $2)
 		ON CONFLICT (company_id, financial_year)
@@ -234,7 +241,8 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 
 	// 7️⃣ Insert invoice
 	var invoiceID int
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		INSERT INTO invoices (
 			company_id,
 			user_id,
@@ -300,7 +308,8 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		// to a floored total leaves a row where rate x qty - discount != total.
 		lineDiscount := lines[idx].Discount.Float64()
 
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(c.Request.Context(),
+			`
 			INSERT INTO invoice_items
 				(invoice_id, item_id, qty, rate, discount, tax_rate, total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -323,7 +332,8 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		}
 	}
 	// 1️⃣1️⃣ Fetch client addresses (snapshot)
-	billingAddr, err := fetchClientAddress(tx, req.ClientID, "billing")
+	billingAddr, err := fetchClientAddress(c.Request.Context(),
+		tx, req.ClientID, "billing")
 	if err != nil {
 		fmt.Println("SQL ERROR:", err)
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -332,10 +342,12 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		return
 	}
 
-	shippingAddr, _ := fetchClientAddress(tx, req.ClientID, "shipping")
+	shippingAddr, _ := fetchClientAddress(c.Request.Context(),
+		tx, req.ClientID, "shipping")
 
 	// 1️⃣2️⃣ Insert invoice address snapshot
-	if err := insertInvoiceAddress(tx, invoiceID, "billing", *billingAddr); err != nil {
+	if err := insertInvoiceAddress(c.Request.Context(),
+		tx, invoiceID, "billing", *billingAddr); err != nil {
 		fmt.Println("SQL ERROR:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 
@@ -345,7 +357,8 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 	}
 
 	if shippingAddr != nil {
-		if err := insertInvoiceAddress(tx, invoiceID, "shipping", *shippingAddr); err != nil {
+		if err := insertInvoiceAddress(c.Request.Context(),
+			tx, invoiceID, "shipping", *shippingAddr); err != nil {
 			fmt.Println("SQL ERROR:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Failed to save invoice shipping address",
@@ -405,7 +418,8 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 		status    string
 	)
 
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT company_id, status
 		FROM invoices
 		WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
@@ -429,7 +443,8 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 
 	// 2️⃣ Validate client
 	var clientExists bool
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS (
 			SELECT 1 FROM clients
 			WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
@@ -444,7 +459,8 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 	// 3️⃣ Validate items
 	for _, item := range req.Items {
 		var itemExists bool
-		err = h.db.DB.QueryRow(`
+		err = h.db.DB.QueryRowContext(c.Request.Context(),
+			`
 			SELECT EXISTS (
 				SELECT 1 FROM items
 				WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
@@ -487,7 +503,7 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 	}
 
 	// 6️⃣ Transaction
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 		return
@@ -507,7 +523,8 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 	// the invoice went back to a draft's figures with its stock already deducted and a
 	// ledger entry already written. Requiring 'draft' in the WHERE makes the edit and
 	// the check one atomic step, and 0 rows means it was issued first.
-	headerRes, err := tx.Exec(`
+	headerRes, err := tx.ExecContext(c.Request.Context(),
+		`
 		UPDATE invoices
 		SET
 			client_id = $1,
@@ -543,7 +560,8 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 	}
 
 	// 8️⃣ Replace invoice items
-	_, err = tx.Exec(`DELETE FROM invoice_items WHERE invoice_id = $1`, invoiceID)
+	_, err = tx.ExecContext(c.Request.Context(),
+		`DELETE FROM invoice_items WHERE invoice_id = $1`, invoiceID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear invoice items"})
 		return
@@ -555,7 +573,8 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 		lineTotal := totals.Lines[idx].Total.Float64()
 		lineDiscount := totals.Lines[idx].Discount.Float64()
 
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(c.Request.Context(),
+			`
 			INSERT INTO invoice_items
 				(invoice_id, item_id, qty, rate, discount, tax_rate, total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -582,21 +601,26 @@ func (h *InvoiceHandler) UpdateInvoice(c *gin.Context) {
 	// draft moved client_id but kept the old copy, so the PDF named the previous
 	// customer, at their address, with their GST split. Retaken on every edit: a draft
 	// should carry the client's details as they are when it is saved.
-	billingAddr, err := fetchClientAddress(tx, req.ClientID, "billing")
+	billingAddr, err := fetchClientAddress(c.Request.Context(),
+		tx, req.ClientID, "billing")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Client billing address is required"})
 		return
 	}
-	if _, err = tx.Exec(`DELETE FROM invoice_addresses WHERE invoice_id = $1`, invoiceID); err != nil {
+	if _, err = tx.ExecContext(c.Request.Context(),
+		`DELETE FROM invoice_addresses WHERE invoice_id = $1`, invoiceID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invoice address"})
 		return
 	}
-	if err = insertInvoiceAddress(tx, int(invoiceID), "billing", *billingAddr); err != nil {
+	if err = insertInvoiceAddress(c.Request.Context(),
+		tx, int(invoiceID), "billing", *billingAddr); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invoice address"})
 		return
 	}
-	if shippingAddr, _ := fetchClientAddress(tx, req.ClientID, "shipping"); shippingAddr != nil {
-		if err = insertInvoiceAddress(tx, int(invoiceID), "shipping", *shippingAddr); err != nil {
+	if shippingAddr, _ := fetchClientAddress(c.Request.Context(),
+		tx, req.ClientID, "shipping"); shippingAddr != nil {
+		if err = insertInvoiceAddress(c.Request.Context(),
+			tx, int(invoiceID), "shipping", *shippingAddr); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invoice address"})
 			return
 		}
@@ -634,7 +658,8 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid company_id"})
 			return
 		}
-		member, err := companyBelongsToUser(h.db.DB, companyID, userID)
+		member, err := companyBelongsToUser(c.Request.Context(),
+			h.db.DB, companyID, userID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 			return
@@ -733,7 +758,8 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 
 	args = append(args, limit, offset)
 
-	rows, err := h.db.DB.Query(query, args...)
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to fetch invoices",
@@ -826,7 +852,8 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		isOverdue               bool
 	)
 
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT
 			i.id,
 			i.company_id,
@@ -883,7 +910,8 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 	// The item's name is joined in because the line rows carry only an item_id, and a
 	// client rendering the invoice has no way to label them — the web detail view showed
 	// "Item #4". LEFT JOIN so a line whose catalogue entry was deleted still lists.
-	rows, err := h.db.DB.Query(`
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
 		SELECT
 			ii.id,
 			ii.item_id,
@@ -982,7 +1010,8 @@ func (h *InvoiceHandler) GetInvoiceNumberPreview(c *gin.Context) {
 
 	// Verify company ownership
 	var exists bool
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS (
 			SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -998,7 +1027,8 @@ func (h *InvoiceHandler) GetInvoiceNumberPreview(c *gin.Context) {
 	fy := utils.FinancialYear(time.Now()) // "2024-25"
 
 	var next int
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT COALESCE(next_number, 0) + 1
         FROM invoice_counters
         WHERE company_id = $1 AND financial_year = $2 
@@ -1033,7 +1063,8 @@ func (h *InvoiceHandler) GetUnpaidInvoices(c *gin.Context) {
 	}
 
 	userID := c.GetInt("user_id")
-	owned, err := companyBelongsToUser(h.db.DB, companyID, userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db.DB, companyID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -1043,7 +1074,8 @@ func (h *InvoiceHandler) GetUnpaidInvoices(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.DB.Query(`
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
 		SELECT id, invoice_number, remaining_amount, invoice_date
 		FROM invoices
 		WHERE company_id = $1
@@ -1091,7 +1123,8 @@ func (h *InvoiceHandler) GetInvoicesByClientID(c *gin.Context) {
 
 	// 🔐 Verify client ownership
 	var companyID int64
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT company_id
 		FROM clients
 		WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
@@ -1102,7 +1135,8 @@ func (h *InvoiceHandler) GetInvoicesByClientID(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.DB.Query(`
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
 		SELECT
 			id,
 			invoice_number,
@@ -1161,7 +1195,7 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	invoiceID, _ := strconv.Atoi(c.Param("id"))
 	userID := c.GetInt("user_id")
 
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to start transaction"})
 		return
@@ -1180,7 +1214,8 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	// went on to issue the same invoice — deducting the stock twice and writing two
 	// ledger entries. The row is held for the rest of this transaction, so a second
 	// request waits here and then sees 'issued'.
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
         SELECT status, total, client_id, company_id, invoice_number
         FROM invoices
         WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
@@ -1205,7 +1240,8 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	if !force {
 		// Summed per item for the same reason the deduction is: two lines of 3 and 5
 		// against 6 in stock oversells, but neither line exceeds stock on its own.
-		overRows, overErr := tx.Query(`
+		overRows, overErr := tx.QueryContext(c.Request.Context(),
+			`
 			SELECT it.name, it.quantity, agg.total_qty
 			FROM items it
 			JOIN (
@@ -1245,7 +1281,8 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	// 1️⃣ Update invoice. Still requires the row to be a draft, so the transition stays
 	// atomic even if the lock above is lost in a later rewrite: no rows updated means
 	// somebody else issued it first, and this request must not deduct stock again.
-	res, err := tx.Exec(`
+	res, err := tx.ExecContext(c.Request.Context(),
+		`
         UPDATE invoices
         SET status = 'issued',
             remaining_amount = total
@@ -1261,7 +1298,7 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	}
 
 	// 2️⃣ Ledger entry (THIS is the correct place)
-	err = h.LedgerService.AddEntryTx(
+	err = h.LedgerService.AddEntryTx(c.Request.Context(),
 		tx,
 		companyID,
 		clientID,
@@ -1282,7 +1319,8 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	// Quantities are summed per item first: an invoice can legitimately carry the same
 	// item on more than one line, and Postgres applies an UPDATE ... FROM only once per
 	// target row, so joining invoice_items directly would deduct only one of those lines.
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(c.Request.Context(),
+		`
 		UPDATE items it
 		SET quantity = it.quantity - agg.total_qty
 		FROM (
@@ -1300,7 +1338,8 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 
 	// Log each deducted item to the stock audit trail. Quantity was already
 	// decremented above, so the pre-deduction value is simply quantity + qty.
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(c.Request.Context(),
+		`
 		INSERT INTO stock_movements (item_id, company_id, user_id, movement_type, quantity_change, previous_quantity, new_quantity, reference)
 		SELECT it.id, $2, $3, 'sale', -agg.total_qty, it.quantity + agg.total_qty, it.quantity, $4
 		FROM items it
@@ -1318,7 +1357,8 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	// Check for items that just crossed into low/out-of-stock, to notify after commit —
 	// never notify about a transaction that might still roll back.
 	var lowStockItems []string
-	lowStockRows, lowStockErr := tx.Query(`
+	lowStockRows, lowStockErr := tx.QueryContext(c.Request.Context(),
+		`
 		SELECT it.name, it.quantity
 		FROM items it
 		JOIN invoice_items ii ON ii.item_id = it.id
@@ -1346,7 +1386,8 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 	}
 
 	if len(lowStockItems) > 0 {
-		h.PushService.SendToUser(userID, "Low stock", strings.Join(lowStockItems, ", "))
+		h.PushService.SendToUser(c.Request.Context(),
+			userID, "Low stock", strings.Join(lowStockItems, ", "))
 	}
 
 	c.JSON(200, gin.H{"message": "Invoice issued successfully"})
@@ -1354,14 +1395,15 @@ func (h *InvoiceHandler) IssueInvoice(c *gin.Context) {
 
 // handlers/invoice_handler.go (add this method)
 
-func (h *InvoiceHandler) GeneratePDFBytes(invoiceID string) ([]byte, string, error) {
+func (h *InvoiceHandler) GeneratePDFBytes(ctx context.Context, invoiceID string) ([]byte, string, error) {
 	id, err := strconv.Atoi(invoiceID)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid invoice id: %w", err)
 	}
 
 	// Fetch invoice data (same as InvoicePDFHandler)
-	pdfData, err := services.FetchInvoicePDFData(h.db.DB, id)
+	pdfData, err := services.FetchInvoicePDFData(ctx,
+		h.db.DB, id)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to fetch invoice data: %w", err)
 	}
@@ -1388,7 +1430,7 @@ func (h *InvoiceHandler) DeleteInvoice(c *gin.Context) {
 	}
 	userID := c.GetInt("user_id")
 
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete invoice"})
 		return
@@ -1396,7 +1438,8 @@ func (h *InvoiceHandler) DeleteInvoice(c *gin.Context) {
 	defer tx.Rollback()
 
 	var status string
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		SELECT status FROM invoices WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, invoiceID, userID).Scan(&status)
 	if err == sql.ErrNoRows {
@@ -1420,7 +1463,8 @@ func (h *InvoiceHandler) DeleteInvoice(c *gin.Context) {
 	// does: money and ledger rows must never be orphaned, and deleting a ledger entry
 	// would invalidate the running balance of every entry recorded after it.
 	var referenced bool
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS(SELECT 1 FROM payment_allocations WHERE invoice_id = $1)
 		    OR EXISTS(SELECT 1 FROM credit_notes WHERE invoice_id = $1)
 		    OR EXISTS(SELECT 1 FROM ledger_entries WHERE source_type = 'INVOICE' AND source_id = $1)
@@ -1438,7 +1482,8 @@ func (h *InvoiceHandler) DeleteInvoice(c *gin.Context) {
 	}
 
 	// invoice_items and invoice_addresses are ON DELETE CASCADE.
-	if _, err = tx.Exec(`DELETE FROM invoices WHERE id = $1`, invoiceID); err != nil {
+	if _, err = tx.ExecContext(c.Request.Context(),
+		`DELETE FROM invoices WHERE id = $1`, invoiceID); err != nil {
 		log.Println("failed to delete invoice:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete invoice"})
 		return
@@ -1470,7 +1515,7 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 	}
 	userID := c.GetInt("user_id")
 
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cancel invoice"})
 		return
@@ -1484,7 +1529,8 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 	// FOR UPDATE for the same reason as issuing: two cancels racing both read 'issued'
 	// and each restored the stock and wrote a reversing ledger entry, so the goods came
 	// back twice.
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		SELECT status, company_id, client_id, invoice_number, total
 		FROM invoices WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 		FOR UPDATE
@@ -1515,7 +1561,8 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 
 	// Stock was deducted when the invoice was issued, so cancelling puts it back, and
 	// the movement is logged rather than silently adjusted.
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(c.Request.Context(),
+		`
 		UPDATE items it
 		SET quantity = it.quantity + agg.total_qty
 		FROM (
@@ -1529,7 +1576,8 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 		return
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(c.Request.Context(),
+		`
 		INSERT INTO stock_movements (item_id, company_id, user_id, movement_type, quantity_change, previous_quantity, new_quantity, reference, note)
 		SELECT it.id, $2, $3, 'adjustment', agg.total_qty, it.quantity - agg.total_qty, it.quantity, $4, 'Invoice cancelled'
 		FROM items it
@@ -1542,7 +1590,8 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 	}
 
 	// Still requires the status this transaction read, so the change cannot apply twice.
-	cancelRes, err := tx.Exec(`
+	cancelRes, err := tx.ExecContext(c.Request.Context(),
+		`
 		UPDATE invoices SET status = 'cancelled', remaining_amount = 0, updated_at = NOW()
 		WHERE id = $1 AND status = $2
 	`, invoiceID, status)
@@ -1558,7 +1607,7 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 
 	// A credit entry cancels the original debit, so the client's running balance
 	// returns to where it was before the invoice was raised.
-	if err = h.LedgerService.AddEntryTx(
+	if err = h.LedgerService.AddEntryTx(c.Request.Context(),
 		tx, companyID, clientID, "ADJUSTMENT", int64(invoiceID),
 		0, total, "Invoice "+number+" cancelled",
 	); err != nil {

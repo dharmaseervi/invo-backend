@@ -33,8 +33,19 @@ func PeriodRange(period string) (time.Time, time.Time) {
 	case "week":
 		return startOfDay(now.AddDate(0, 0, -6)), endOfDay(now)
 
+	case "quarter":
+		return startOfDay(now.AddDate(0, -3, 0)), endOfDay(now)
+
 	case "year":
 		return time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location()), endOfDay(now)
+
+	case "financial-year":
+		// Indian financial year runs April 1 – March 31.
+		fyStart := time.Date(now.Year(), 4, 1, 0, 0, 0, 0, now.Location())
+		if fyStart.After(now) {
+			fyStart = time.Date(now.Year()-1, 4, 1, 0, 0, 0, 0, now.Location())
+		}
+		return fyStart, endOfDay(now)
 
 	default: // month
 		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()), endOfDay(now)

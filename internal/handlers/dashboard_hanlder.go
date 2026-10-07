@@ -33,7 +33,8 @@ func (h *DashboardHandler) GetDashboard(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid companyId"})
 		return
 	}
-	owned, err := companyBelongsToUser(h.db.DB, companyIDInt, userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db.DB, companyIDInt, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -149,7 +150,8 @@ func (h *DashboardHandler) GetDashboard(c *gin.Context) {
 	// heights before this existed. generate_series supplies the days so a day with no
 	// sales appears as a zero bar rather than being missing from the series, which
 	// would otherwise compress the axis and misrepresent the shape.
-	trendRows, err := h.db.DB.Query(`
+	trendRows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
 		SELECT TO_CHAR(d.day, 'YYYY-MM-DD'), COALESCE(SUM(i.total), 0)
 		FROM generate_series(CURRENT_DATE - INTERVAL '6 days', CURRENT_DATE, INTERVAL '1 day') AS d(day)
 		LEFT JOIN invoices i

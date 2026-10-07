@@ -28,12 +28,16 @@ func TestCashClosingSnapshot(t *testing.T) {
 	schema := fmt.Sprintf("closing_test_%d", time.Now().UnixNano())
 	exec := func(query string, args ...any) {
 		t.Helper()
-		if _, err := db.Exec(query, args...); err != nil {
+		if _, err := db.ExecContext(context.Background(),
+			query, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
 	exec("CREATE SCHEMA " + schema)
-	defer func() { _, _ = db.Exec("DROP SCHEMA " + schema + " CASCADE") }()
+	defer func() {
+		_, _ = db.ExecContext(context.Background(),
+			"DROP SCHEMA "+schema+" CASCADE")
+	}()
 	exec("SET search_path TO " + schema)
 	exec(`
 		CREATE TABLE day_closings (

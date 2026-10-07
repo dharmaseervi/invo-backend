@@ -1,6 +1,9 @@
 package handlers
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+)
 
 // sessionVersion is the counter a user's live tokens must carry.
 //
@@ -13,9 +16,10 @@ import "database/sql"
 //
 // 0 means "unknown", which the middleware treats as no version check rather than as a
 // mismatch, so a token issued before this existed keeps working until it expires.
-func sessionVersion(db *sql.DB, userID int64) int {
+func sessionVersion(ctx context.Context, db *sql.DB, userID int64) int {
 	var v int
-	if err := db.QueryRow(`SELECT session_version FROM users WHERE id = $1`, userID).Scan(&v); err != nil {
+	if err := db.QueryRowContext(ctx,
+		`SELECT session_version FROM users WHERE id = $1`, userID).Scan(&v); err != nil {
 		return 0
 	}
 	return v

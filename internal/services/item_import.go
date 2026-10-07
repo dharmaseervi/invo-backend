@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"errors"
@@ -156,7 +157,7 @@ func normaliseHeader(s string) string {
 //
 // override lets the caller correct the detected mapping, keyed by the header exactly as
 // it appears in the file.
-func ParseItemCSV(
+func ParseItemCSV(ctx context.Context,
 	db *sql.DB,
 	companyID int,
 	content string,
@@ -215,7 +216,8 @@ func ParseItemCSV(
 
 	// Existing products, to recognise what is already there. One query rather than one
 	// per row: a 2000-row file would otherwise be 2000 round trips.
-	existing, err := loadExistingItems(db, companyID)
+	existing, err := loadExistingItems(ctx,
+		db, companyID)
 	if err != nil {
 		return out, err
 	}
@@ -481,13 +483,14 @@ func (e existingItems) match(item ImportItem) *ImportDuplicate {
 	return nil
 }
 
-func loadExistingItems(db *sql.DB, companyID int) (existingItems, error) {
+func loadExistingItems(ctx context.Context, db *sql.DB, companyID int) (existingItems, error) {
 	out := existingItems{
 		bySKU:  map[string]ImportDuplicate{},
 		byName: map[string]ImportDuplicate{},
 	}
 
-	rows, err := db.Query(`
+	rows, err := db.QueryContext(ctx,
+		`
 		SELECT id, name, COALESCE(sku, ''), price, quantity
 		FROM items WHERE company_id = $1
 	`, companyID)
@@ -546,7 +549,7 @@ type ImportFailure struct {
 // products made it, and the obvious next move — import the file again — then creates
 // duplicates of the half that worked. Any row that fails rolls the lot back and the
 // result says which line and why.
-func ApplyItemImport(
+func ApplyItemImport(ctx context.Context,
 	db *sql.DB,
 	companyID, userID int,
 	actions []ImportAction,
@@ -560,7 +563,7 @@ func ApplyItemImport(
 		return out, ImportInputError{fmt.Sprintf("More than %d rows at once.", maxImportRows)}
 	}
 
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return out, err
 	}
@@ -577,7 +580,8 @@ func ApplyItemImport(
 				out.Failed = append(out.Failed, ImportFailure{a.Line, a.Item.Name, "A name is required."})
 				return out, failedImport(out)
 			}
-			_, err := tx.Exec(`
+			_, err := tx.ExecContext(ctx,
+				`
 				INSERT INTO items
 					(name, sku, unit, description, cost_price, price, quantity,
 					 low_stock_alert, tax_rate, hsn_code, company_id, user_id)
@@ -600,7 +604,8 @@ func ApplyItemImport(
 		case "update":
 			// Scoped to the company: an item id from the request is not trusted to
 			// belong to this business just because the company id does.
-			res, err := tx.Exec(`
+			res, err := tx.ExecContext(ctx,
+				`
 				UPDATE items SET
 					name = $1, sku = $2, unit = $3, description = $4,
 					cost_price = $5, price = $6, quantity = $7,

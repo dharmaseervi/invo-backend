@@ -28,7 +28,8 @@ func (h *DeviceTokenHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if err := h.pushService.RegisterToken(userID, req.Token); err != nil {
+	if err := h.pushService.RegisterToken(c.Request.Context(),
+		userID, req.Token); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to register device"})
 		return
 	}
@@ -46,7 +47,8 @@ func (h *DeviceTokenHandler) Unregister(c *gin.Context) {
 		return
 	}
 
-	if err := h.pushService.UnregisterToken(c.GetInt("user_id"), req.Token); err != nil {
+	if err := h.pushService.UnregisterToken(c.Request.Context(),
+		c.GetInt("user_id"), req.Token); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to unregister device"})
 		return
 	}
@@ -57,6 +59,7 @@ func (h *DeviceTokenHandler) Unregister(c *gin.Context) {
 // POST /api/v1/push/test
 func (h *DeviceTokenHandler) SendTest(c *gin.Context) {
 	userID := c.GetInt("user_id")
-	h.pushService.SendToUser(userID, "Test notification", "If you see this, push notifications are working 🎉")
+	h.pushService.SendToUser(c.Request.Context(),
+		userID, "Test notification", "If you see this, push notifications are working 🎉")
 	c.JSON(http.StatusOK, gin.H{"message": "Test push requested — check the server log for the result"})
 }

@@ -47,7 +47,8 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 
 	// Ensure company belongs to this user
 	var companyExists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS(
 			SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -74,7 +75,8 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 	// thing by it.
 	if request.CategoryID != nil && *request.CategoryID != 0 {
 		var categoryExists bool
-		err := h.db.DB.QueryRow(`
+		err := h.db.DB.QueryRowContext(c.Request.Context(),
+			`
 			SELECT EXISTS(
 				SELECT 1 FROM categories WHERE id = $1 AND company_id = $2
 			)
@@ -87,7 +89,8 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 	}
 
 	// Insert the item
-	_, err := h.db.DB.Exec(`
+	_, err := h.db.DB.ExecContext(c.Request.Context(),
+		`
     INSERT INTO items 
     (name, category_id, sku, unit, description, cost_price, price, quantity, low_stock_alert, tax_rate, hsn_code, company_id, user_id) 
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
@@ -127,7 +130,8 @@ func (h *itemHandler) GetItems(c *gin.Context) {
 
 	// Validate company ownership
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -192,7 +196,8 @@ func (h *itemHandler) GetItems(c *gin.Context) {
 		args = append(args, limit+1)
 	}
 
-	rows, err := h.db.DB.Query(query, args...)
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		query, args...)
 	if err != nil {
 		log.Println("failed to fetch items:", err)
 		c.JSON(500, gin.H{"error": "Failed to fetch items"})
@@ -279,7 +284,8 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 	// logged to the audit trail — silently overwriting quantity with no record
 	// of why is exactly the gap this closes.
 	var previousQuantity, companyID int
-	_ = h.db.DB.QueryRow(`
+	_ = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT quantity, company_id FROM items WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, itemID, userID).Scan(&previousQuantity, &companyID)
 
@@ -287,7 +293,8 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 	// another tenant's category and leak its name back through every item read.
 	if request.CategoryID != nil && *request.CategoryID != 0 {
 		var categoryOK bool
-		if err := h.db.DB.QueryRow(`
+		if err := h.db.DB.QueryRowContext(c.Request.Context(),
+			`
 			SELECT EXISTS(
 				SELECT 1 FROM categories
 				WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
@@ -298,7 +305,8 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 		}
 	}
 
-	result, err := h.db.DB.Exec(`
+	result, err := h.db.DB.ExecContext(c.Request.Context(),
+		`
 		UPDATE items SET
 			name = $1, category_id = $2, sku = $3, unit = $4,
 			description = $5, cost_price = $6, price = $7, quantity = $8,
@@ -333,7 +341,7 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 	rows, _ := result.RowsAffected()
 	if rows > 0 && request.Quantity != previousQuantity {
 		id, _ := strconv.Atoi(itemID)
-		if err := services.LogStockMovement(
+		if err := services.LogStockMovement(c.Request.Context(),
 			h.db.DB, id, companyID, userID, "adjustment",
 			request.Quantity-previousQuantity, previousQuantity, request.Quantity,
 			nil, nil,
@@ -355,7 +363,8 @@ func (h *itemHandler) GetItemByID(c *gin.Context) {
 
 	var item models.Item
 
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT
     id, name, category_id,
     COALESCE(sku, ''), COALESCE(unit, ''), COALESCE(description, ''),
@@ -411,7 +420,7 @@ func (h *itemHandler) RestockItem(c *gin.Context) {
 	//
 	// The movement record is written in the same transaction as the increment, so the
 	// audit trail cannot end up disagreeing with the stock.
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to restock item"})
 		return
@@ -419,7 +428,8 @@ func (h *itemHandler) RestockItem(c *gin.Context) {
 	defer tx.Rollback()
 
 	var previousQuantity, newQuantity, companyID int
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		UPDATE items SET quantity = quantity + $1, updated_at = NOW()
 		WHERE id = $2 AND company_id IN (SELECT company_id FROM companies_for_user($3))
 		RETURNING quantity - $1, quantity, company_id
@@ -435,7 +445,7 @@ func (h *itemHandler) RestockItem(c *gin.Context) {
 	}
 
 	id, _ := strconv.Atoi(itemID)
-	if err := services.LogStockMovement(
+	if err := services.LogStockMovement(c.Request.Context(),
 		tx, id, companyID, userID, "restock",
 		request.Quantity, previousQuantity, newQuantity,
 		request.Reference, request.Note,
@@ -463,7 +473,8 @@ func (h *itemHandler) GetItemMovements(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
 	var owned bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)))
 	`, itemID, userID).Scan(&owned)
 	if !owned {
@@ -471,7 +482,8 @@ func (h *itemHandler) GetItemMovements(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.DB.Query(`
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
 		SELECT id, item_id, movement_type, quantity_change, previous_quantity,
 		       new_quantity, reference, note, TO_CHAR(created_at, 'DD Mon YYYY, HH12:MI AM')
 		FROM stock_movements

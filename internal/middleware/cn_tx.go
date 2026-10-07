@@ -8,7 +8,7 @@ import (
 
 func DBTransactionMiddleware(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		tx, err := db.Begin()
+		tx, err := db.BeginTx(c.Request.Context(), nil)
 		if err != nil {
 			c.AbortWithStatusJSON(500, gin.H{
 				"error": "failed to start transaction",

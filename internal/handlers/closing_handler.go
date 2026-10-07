@@ -35,7 +35,8 @@ func (h *ClosingHandler) company(c *gin.Context) (int64, bool) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
 		return 0, false
 	}
-	owned, err := companyBelongsToUser(h.db, companyID, c.GetInt("user_id"))
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, c.GetInt("user_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return 0, false

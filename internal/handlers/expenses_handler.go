@@ -47,7 +47,8 @@ func (h *expenseHandler) CreateExpense(c *gin.Context) {
 
 	// Ensure company belongs to this user
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -61,7 +62,8 @@ func (h *expenseHandler) CreateExpense(c *gin.Context) {
 
 	// Insert the expense
 	var expenseID int
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         INSERT INTO expensess (name, amount, description, date, company_id, user_id, payment_method) 
         VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
         RETURNING id
@@ -88,7 +90,8 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
 
 	// Check if this company belongs to this user
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -116,7 +119,8 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
 		args = append(args, limit, mustAtoi(c.Query("offset")))
 	}
 
-	rows, err := h.db.DB.Query(query, args...)
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		query, args...)
 
 	if err != nil {
 		log.Println("Query ERROR:", err)
@@ -163,7 +167,8 @@ func (h *expenseHandler) GetExpenseByID(c *gin.Context) {
 	var companyID int
 
 	// Fetch expense and verify ownership
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT id, name, amount, description, date, company_id, COALESCE(payment_method, ''), created_at, updated_at
         FROM expensess
         WHERE id=$1
@@ -186,7 +191,8 @@ func (h *expenseHandler) GetExpenseByID(c *gin.Context) {
 
 	// Verify this company belongs to the user
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -225,7 +231,8 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 
 	// Get expense company
 	var companyID int
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT company_id FROM expensess WHERE id=$1
 	`, expenseID).Scan(&companyID)
 
@@ -236,7 +243,8 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 
 	// Verify ownership
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS(
 			SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -256,7 +264,8 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 	}
 
 	// Update safely
-	_, err = h.db.DB.Exec(`
+	_, err = h.db.DB.ExecContext(c.Request.Context(),
+		`
 		UPDATE expensess
 		SET
 			name = COALESCE($1, name),
@@ -292,7 +301,8 @@ func (h *expenseHandler) DeleteExpense(c *gin.Context) {
 
 	// Get current expense and verify ownership
 	var companyID int
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT company_id FROM expensess WHERE id=$1
     `, expenseID).Scan(&companyID)
 
@@ -303,7 +313,8 @@ func (h *expenseHandler) DeleteExpense(c *gin.Context) {
 
 	// Verify company belongs to user
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -317,7 +328,8 @@ func (h *expenseHandler) DeleteExpense(c *gin.Context) {
 	}
 
 	// Delete the expense
-	_, err = h.db.DB.Exec(`DELETE FROM expensess WHERE id=$1`, expenseID)
+	_, err = h.db.DB.ExecContext(c.Request.Context(),
+		`DELETE FROM expensess WHERE id=$1`, expenseID)
 
 	if err != nil {
 		log.Println("failed to delete expense:", err)
@@ -343,7 +355,8 @@ func (h *expenseHandler) GetExpensesByDateRange(c *gin.Context) {
 
 	// Check if this company belongs to this user
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -357,7 +370,8 @@ func (h *expenseHandler) GetExpensesByDateRange(c *gin.Context) {
 	}
 
 	// Fetch expenses in date range
-	rows, err := h.db.DB.Query(`
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
         SELECT id, name, amount, description, date, COALESCE(payment_method, ''), created_at, updated_at
         FROM expensess
         WHERE company_id=$1 AND date BETWEEN $2 AND $3
@@ -407,7 +421,8 @@ func (h *expenseHandler) GetExpenseStats(c *gin.Context) {
 
 	// Check if this company belongs to this user
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -425,7 +440,8 @@ func (h *expenseHandler) GetExpenseStats(c *gin.Context) {
 	var avgAmount float64
 
 	// Get stats
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT 
             COALESCE(SUM(amount), 0),
             COUNT(*),
@@ -463,7 +479,8 @@ func (h *expenseHandler) GetExpenseSummary(c *gin.Context) {
 	companyID := c.Param("companyId")
 
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
             SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2)
@@ -476,7 +493,8 @@ func (h *expenseHandler) GetExpenseSummary(c *gin.Context) {
 
 	var thisMonth, lastMonth, total float64
 	var count int
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT
             COALESCE(SUM(amount) FILTER (
                 WHERE date >= date_trunc('month', CURRENT_DATE)

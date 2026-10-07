@@ -23,7 +23,8 @@ func (h *CompanyBankHandler) List(c *gin.Context) {
 	id, _ := strconv.Atoi(c.Param("companyId"))
 	userID := c.GetInt("user_id")
 
-	owned, err := companyBelongsToUser(h.db, int64(id), userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, int64(id), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -62,7 +63,8 @@ func (h *CompanyBankHandler) Create(c *gin.Context) {
 	}
 
 	userID := c.GetInt("user_id")
-	owned, err := companyBelongsToUser(h.db, int64(bank.CompanyID), userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, int64(bank.CompanyID), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -72,7 +74,8 @@ func (h *CompanyBankHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if err := services.CreateCompanyBank(h.db, &bank); err != nil {
+	if err := services.CreateCompanyBank(c.Request.Context(),
+		h.db, &bank); err != nil {
 		log.Println("failed to create company bank:", err)
 		c.JSON(500, gin.H{"error": "Failed to save bank account"})
 		return
@@ -95,7 +98,8 @@ func (h *CompanyBankHandler) Update(c *gin.Context) {
 		return
 	}
 
-	owned, err := bankBelongsToUser(h.db, id, userID)
+	owned, err := bankBelongsToUser(c.Request.Context(),
+		h.db, id, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify bank account"})
 		return
@@ -113,11 +117,53 @@ func (h *CompanyBankHandler) Update(c *gin.Context) {
 
 	bank.ID = id
 
-	if err := services.UpdateCompanyBank(h.db, &bank); err != nil {
+	if err := services.UpdateCompanyBank(c.Request.Context(),
+		h.db, &bank); err != nil {
 		log.Println("failed to update company bank:", err)
 		c.JSON(500, gin.H{"error": "Failed to update bank account"})
 		return
 	}
 
 	c.JSON(200, bank)
+}
+
+// Delete removes a bank account from a company.
+//
+// Both apps have offered this for a while — the list has a swipe to delete, and it sent
+// a DELETE to exactly this path — but the route was never registered, so the gesture
+// could only ever fail, and the service discarded the failure, so it failed in silence.
+// A bank account added with a typo in the IFSC could not be got rid of.
+//
+// A hard delete is safe here: nothing references these rows. An invoice carries the
+// details it was printed with, so removing an account changes nothing about an invoice
+// already written.
+func (h *CompanyBankHandler) Delete(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("bankId"))
+	userID := c.GetInt("user_id")
+
+	// The same confirmation adding and changing one asks for. Removing the account a
+	// shop's customers pay into is no smaller a change than editing it.
+	if err := confirmAccountPassword(c, h.db, userID); err != nil {
+		return
+	}
+
+	owned, err := bankBelongsToUser(c.Request.Context(),
+		h.db, id, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify bank account"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	if err := services.DeleteCompanyBank(c.Request.Context(),
+		h.db, id); err != nil {
+		log.Println("failed to delete company bank:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete bank account"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }

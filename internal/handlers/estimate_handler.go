@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	database "invo-server/internal/db"
@@ -39,14 +40,16 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 		return
 	}
 
-	owned, err := companyBelongsToUser(h.db.DB, int64(req.CompanyID), userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db.DB, int64(req.CompanyID), userID)
 	if err != nil || !owned {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized company access"})
 		return
 	}
 
 	var clientExists bool
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS (SELECT 1 FROM clients WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3)
 	`, req.ClientID, userID, req.CompanyID).Scan(&clientExists)
 	if err != nil || !clientExists {
@@ -58,7 +61,8 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 	// could cite another tenant's item ids and print their names in the generated PDF.
 	for _, item := range req.Items {
 		var itemExists bool
-		err = h.db.DB.QueryRow(`
+		err = h.db.DB.QueryRowContext(c.Request.Context(),
+			`
 			SELECT EXISTS (
 				SELECT 1 FROM items WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3
 			)
@@ -100,7 +104,7 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 		expiryDate = &parsed
 	}
 
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 		return
@@ -114,7 +118,8 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 
 	fy := utils.FinancialYear(estimateDate)
 	var nextNumber int
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		INSERT INTO estimate_counters (company_id, financial_year)
 		VALUES ($1, $2)
 		ON CONFLICT (company_id, financial_year)
@@ -128,7 +133,8 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 	estimateNumber := fmt.Sprintf("EST/%s/%04d", fy, nextNumber)
 
 	var estimateID int
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		INSERT INTO estimates (
 			company_id, user_id, client_id, estimate_number,
 			estimate_date, expiry_date, subtotal, tax, discount, total, status
@@ -146,7 +152,8 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 	}
 
 	for idx, item := range req.Items {
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(c.Request.Context(),
+			`
 			INSERT INTO estimate_items (estimate_id, item_id, qty, rate, discount, tax_rate, total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)
 		`, estimateID, item.ItemID, item.Qty, item.Rate,
@@ -209,10 +216,25 @@ func (h *EstimateHandler) GetEstimates(c *gin.Context) {
 			argPos++
 		}
 	}
-	query += ` ORDER BY e.estimate_date DESC LIMIT $` + strconv.Itoa(argPos) + ` OFFSET $` + strconv.Itoa(argPos+1)
+	// Searching here rather than on the phone, because the phone only has the page it
+	// has loaded: filtering that locally answers "no results" for an estimate that is
+	// simply further down the list. By number or by who it is for, which is what
+	// somebody has in mind when they go looking for one.
+	if search := strings.TrimSpace(c.Query("search")); search != "" {
+		query += ` AND (e.estimate_number ILIKE $` + strconv.Itoa(argPos) +
+			` OR c.name ILIKE $` + strconv.Itoa(argPos) + `)`
+		args = append(args, "%"+search+"%")
+		argPos++
+	}
+	// `e.id DESC` is not decoration. Ordering by date alone leaves estimates written on
+	// the same day in no fixed order, so two pages of a paged list could show the same
+	// estimate twice and never show another one at all.
+	query += ` ORDER BY e.estimate_date DESC, e.id DESC LIMIT $` + strconv.Itoa(argPos) +
+		` OFFSET $` + strconv.Itoa(argPos+1)
 	args = append(args, limit, offset)
 
-	rows, err := h.db.DB.Query(query, args...)
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch estimates"})
 		return
@@ -286,7 +308,8 @@ func (h *EstimateHandler) GetEstimateByID(c *gin.Context) {
 		clientName                     string
 	)
 
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT
 			e.id, e.client_id, e.estimate_number, e.estimate_date, e.expiry_date,
 			e.subtotal, e.tax, e.discount, e.total, e.status, e.converted_invoice_id,
@@ -306,7 +329,8 @@ func (h *EstimateHandler) GetEstimateByID(c *gin.Context) {
 
 	// The item name is joined in for the same reason the invoice detail does it: the
 	// line rows carry only an item_id, so a client has nothing to label them with.
-	rows, err := h.db.DB.Query(`
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
 		SELECT ei.id, ei.item_id, ei.qty, ei.rate, ei.discount, ei.tax_rate, ei.total,
 		       COALESCE(it.name, ''), COALESCE(it.hsn_code, '')
 		FROM estimate_items ei
@@ -387,7 +411,8 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 		companyID int
 		status    string
 	)
-	err = h.db.DB.QueryRow(`SELECT company_id, status FROM estimates WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))`, estimateID, userID).Scan(&companyID, &status)
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT company_id, status FROM estimates WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))`, estimateID, userID).Scan(&companyID, &status)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Estimate not found"})
 		return
@@ -402,7 +427,8 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 	}
 
 	var clientExists bool
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS (SELECT 1 FROM clients WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) AND company_id = $3)
 	`, req.ClientID, userID, companyID).Scan(&clientExists)
 	if err != nil || !clientExists {
@@ -435,7 +461,7 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 		expiryDate = &parsed
 	}
 
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 		return
@@ -447,7 +473,8 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 		}
 	}()
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(c.Request.Context(),
+		`
 		UPDATE estimates
 		SET client_id = $1, estimate_date = $2, expiry_date = $3,
 		    subtotal = $4, tax = $5, discount = $6, total = $7, updated_at = NOW()
@@ -458,14 +485,16 @@ func (h *EstimateHandler) UpdateEstimate(c *gin.Context) {
 		return
 	}
 
-	_, err = tx.Exec(`DELETE FROM estimate_items WHERE estimate_id = $1`, estimateID)
+	_, err = tx.ExecContext(c.Request.Context(),
+		`DELETE FROM estimate_items WHERE estimate_id = $1`, estimateID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear estimate items"})
 		return
 	}
 
 	for idx, item := range req.Items {
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(c.Request.Context(),
+			`
 			INSERT INTO estimate_items (estimate_id, item_id, qty, rate, discount, tax_rate, total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)
 		`, estimateID, item.ItemID, item.Qty, item.Rate,
@@ -506,7 +535,8 @@ func (h *EstimateHandler) UpdateEstimateStatus(c *gin.Context) {
 		return
 	}
 
-	result, err := h.db.DB.Exec(`
+	result, err := h.db.DB.ExecContext(c.Request.Context(),
+		`
 		UPDATE estimates SET status = $1, updated_at = NOW()
 		WHERE id = $2 AND company_id IN (SELECT company_id FROM companies_for_user($3)) AND status != 'converted'
 	`, req.Status, estimateID, userID)
@@ -537,7 +567,8 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 		status              string
 		discount            float64
 	)
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT company_id, client_id, status, discount FROM estimates WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, estimateID, userID).Scan(&companyID, &clientID, &status, &discount)
 	if err == sql.ErrNoRows {
@@ -553,7 +584,8 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 		return
 	}
 
-	itemRows, err := h.db.DB.Query(`
+	itemRows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
 		SELECT item_id, qty, rate, discount, tax_rate FROM estimate_items WHERE estimate_id = $1
 	`, estimateID)
 	if err != nil {
@@ -605,7 +637,7 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 	discount = totals.Discount.Float64()
 	total := totals.Total.Float64()
 
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 		return
@@ -623,7 +655,8 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 	// again inside the transaction: the second request waits here, then sees
 	// 'converted'.
 	var lockedStatus string
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(c.Request.Context(),
+		`
 		SELECT status FROM estimates WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)) FOR UPDATE
 	`, estimateID, userID).Scan(&lockedStatus); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch estimate"})
@@ -637,7 +670,8 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 	invDate := time.Now()
 	fy := utils.FinancialYear(invDate)
 	var nextNumber int
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		INSERT INTO invoice_counters (company_id, financial_year)
 		VALUES ($1, $2)
 		ON CONFLICT (company_id, financial_year)
@@ -652,7 +686,8 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 	dueDate := invDate.AddDate(0, 0, 7)
 
 	var invoiceID int
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		INSERT INTO invoices (
 			company_id, user_id, client_id, invoice_number, invoice_date, due_date,
 			subtotal, tax, discount, total, status, paid_amount, remaining_amount
@@ -667,7 +702,8 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 	}
 
 	for idx, li := range lines {
-		_, err = tx.Exec(`
+		_, err = tx.ExecContext(c.Request.Context(),
+			`
 			INSERT INTO invoice_items (invoice_id, item_id, qty, rate, discount, tax_rate, total)
 			VALUES ($1,$2,$3,$4,$5,$6,$7)
 		`, invoiceID, li.itemID, li.qty, li.rate,
@@ -681,18 +717,22 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 	// Snapshot the client's addresses exactly as CreateInvoice does. Without this the
 	// invoice has no billing state, which decides CGST+SGST vs IGST on both the printed
 	// invoice and the GST return — a converted estimate would be booked as interstate.
-	billingAddr, err := fetchClientAddress(tx, clientID, "billing")
+	billingAddr, err := fetchClientAddress(c.Request.Context(),
+		tx, clientID, "billing")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Client billing address is required"})
 		return
 	}
-	if err := insertInvoiceAddress(tx, invoiceID, "billing", *billingAddr); err != nil {
+	if err := insertInvoiceAddress(c.Request.Context(),
+		tx, invoiceID, "billing", *billingAddr); err != nil {
 		log.Println("failed to save invoice billing address:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save invoice billing address"})
 		return
 	}
-	if shippingAddr, _ := fetchClientAddress(tx, clientID, "shipping"); shippingAddr != nil {
-		if err := insertInvoiceAddress(tx, invoiceID, "shipping", *shippingAddr); err != nil {
+	if shippingAddr, _ := fetchClientAddress(c.Request.Context(),
+		tx, clientID, "shipping"); shippingAddr != nil {
+		if err := insertInvoiceAddress(c.Request.Context(),
+			tx, invoiceID, "shipping", *shippingAddr); err != nil {
 			log.Println("failed to save invoice shipping address:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save invoice shipping address"})
 			return
@@ -700,7 +740,8 @@ func (h *EstimateHandler) ConvertToInvoice(c *gin.Context) {
 	}
 
 	// One conversion per estimate, enforced in the write itself as well as by the lock.
-	convRes, err := tx.Exec(`
+	convRes, err := tx.ExecContext(c.Request.Context(),
+		`
 		UPDATE estimates SET status = 'converted', converted_invoice_id = $1, updated_at = NOW()
 		WHERE id = $2 AND status != 'converted'
 	`, invoiceID, estimateID)
@@ -739,7 +780,8 @@ func (h *EstimateHandler) GetEstimateNumberPreview(c *gin.Context) {
 		return
 	}
 
-	owned, err := companyBelongsToUser(h.db.DB, int64(companyID), userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db.DB, int64(companyID), userID)
 	if err != nil || !owned {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
 		return
@@ -747,7 +789,8 @@ func (h *EstimateHandler) GetEstimateNumberPreview(c *gin.Context) {
 
 	fy := utils.FinancialYear(time.Now())
 	var nextNumber int
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT COALESCE(next_number, 0) + 1 FROM estimate_counters WHERE company_id = $1 AND financial_year = $2
 	`, companyID, fy).Scan(&nextNumber)
 	if err != nil {
@@ -769,7 +812,8 @@ func (h *EstimateHandler) GetEstimatePDF(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
 	var owned bool
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS (SELECT 1 FROM estimates WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2)))
 	`, estimateID, userID).Scan(&owned)
 	if err != nil || !owned {
@@ -779,7 +823,8 @@ func (h *EstimateHandler) GetEstimatePDF(c *gin.Context) {
 
 	template := c.DefaultQuery("template", pdf.TemplateClassic)
 
-	data, err := services.FetchEstimatePDFData(h.db.DB, estimateID)
+	data, err := services.FetchEstimatePDFData(c.Request.Context(),
+		h.db.DB, estimateID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch estimate data"})
 		return

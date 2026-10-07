@@ -49,7 +49,8 @@ func (h *itemHandler) PreviewItemImport(c *gin.Context) {
 		return
 	}
 
-	owned, err := companyBelongsToUser(h.db.DB, int64(req.CompanyID), userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db.DB, int64(req.CompanyID), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -70,7 +71,8 @@ func (h *itemHandler) PreviewItemImport(c *gin.Context) {
 		return
 	}
 
-	preview, err := services.ParseItemCSV(h.db.DB, req.CompanyID, content, req.Mapping)
+	preview, err := services.ParseItemCSV(c.Request.Context(),
+		h.db.DB, req.CompanyID, content, req.Mapping)
 	if err != nil {
 		var input services.ImportInputError
 		if errors.As(err, &input) {
@@ -102,7 +104,8 @@ func (h *itemHandler) ApplyItemImport(c *gin.Context) {
 		return
 	}
 
-	owned, err := companyBelongsToUser(h.db.DB, int64(req.CompanyID), userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db.DB, int64(req.CompanyID), userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -112,7 +115,8 @@ func (h *itemHandler) ApplyItemImport(c *gin.Context) {
 		return
 	}
 
-	result, err := services.ApplyItemImport(h.db.DB, req.CompanyID, userID, req.Rows)
+	result, err := services.ApplyItemImport(c.Request.Context(),
+		h.db.DB, req.CompanyID, userID, req.Rows)
 	if err != nil {
 		var input services.ImportInputError
 		if errors.As(err, &input) {

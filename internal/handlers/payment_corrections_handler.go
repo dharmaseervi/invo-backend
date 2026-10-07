@@ -20,7 +20,8 @@ func (h *PaymentHandler) companyFromQuery(c *gin.Context) (int64, bool) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
 		return 0, false
 	}
-	owned, err := companyBelongsToUser(h.db.DB, companyID, c.GetInt("user_id"))
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db.DB, companyID, c.GetInt("user_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return 0, false
@@ -51,7 +52,8 @@ func (h *PaymentHandler) ReversePayment(c *gin.Context) {
 	}
 	_ = c.ShouldBindJSON(&req)
 
-	if err := h.service.ReversePayment(companyID, paymentID, req.Reason); err != nil {
+	if err := h.service.ReversePayment(c.Request.Context(),
+		companyID, paymentID, req.Reason); err != nil {
 		var input services.PaymentInputError
 		if errors.As(err, &input) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": input.Msg})
@@ -92,7 +94,8 @@ func (h *PaymentHandler) ReallocatePayment(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.ReallocatePayment(companyID, paymentID, req.Allocations); err != nil {
+	if err := h.service.ReallocatePayment(c.Request.Context(),
+		companyID, paymentID, req.Allocations); err != nil {
 		var input services.PaymentInputError
 		if errors.As(err, &input) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": input.Msg})
@@ -123,7 +126,8 @@ func (h *PaymentHandler) RecordRefund(c *gin.Context) {
 		return
 	}
 
-	id, err := h.service.RecordRefund(companyID, req)
+	id, err := h.service.RecordRefund(c.Request.Context(),
+		companyID, req)
 	if err != nil {
 		var input services.PaymentInputError
 		if errors.As(err, &input) {
@@ -169,7 +173,8 @@ func (h *PaymentHandler) GetRefunds(c *gin.Context) {
 		args = append(args, limit, mustAtoi(c.Query("offset")))
 	}
 
-	rows, err := h.db.DB.Query(query, args...)
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		query, args...)
 	if err != nil {
 		log.Println("failed to fetch refunds:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch refunds"})

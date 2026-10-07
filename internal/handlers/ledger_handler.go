@@ -46,7 +46,8 @@ func (h *LedgerHandler) GetClientLedger(c *gin.Context) {
 	}
 
 	userID := c.GetInt("user_id")
-	owned, err := companyBelongsToUser(h.db, companyID, userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -89,7 +90,8 @@ func (h *LedgerHandler) GetCompanyLedger(c *gin.Context) {
 	}
 
 	userID := c.GetInt("user_id")
-	owned, err := companyBelongsToUser(h.db, companyID, userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -158,7 +160,8 @@ func (h *LedgerHandler) GetCompanyLedgerSummaries(c *gin.Context) {
 	}
 
 	userID := c.GetInt("user_id")
-	owned, err := companyBelongsToUser(h.db, companyID, userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -207,7 +210,8 @@ func (h *LedgerHandler) companyFromHeader(c *gin.Context) (int64, bool) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid company_id"})
 		return 0, false
 	}
-	owned, err := companyBelongsToUser(h.db, companyID, c.GetInt("user_id"))
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, c.GetInt("user_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return 0, false
@@ -249,7 +253,8 @@ func (h *LedgerHandler) GetClientStatementPDF(c *gin.Context) {
 		return
 	}
 
-	owned, err := companyBelongsToUser(h.db, companyID, c.GetInt("user_id"))
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, c.GetInt("user_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return

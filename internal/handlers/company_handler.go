@@ -47,14 +47,14 @@ func (h *CompanyHandler) CreateCompany(c *gin.Context) {
 	// The company and its owner's membership are written together. That membership row
 	// is what grants access from here on, so a company saved without one would be a
 	// business its own owner could not open.
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to create company"})
 		return
 	}
 	defer tx.Rollback()
 
-	err = tx.QueryRow(
+	err = tx.QueryRowContext(c.Request.Context(),
 		query,
 		userID,
 		request.Name,
@@ -72,7 +72,8 @@ func (h *CompanyHandler) CreateCompany(c *gin.Context) {
 		return
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(c.Request.Context(),
+		`
 		INSERT INTO company_members (company_id, user_id, role, name)
 		VALUES ($1, $2, 'owner', '')
 		ON CONFLICT (company_id, user_id) DO NOTHING
@@ -104,7 +105,8 @@ func (h *CompanyHandler) GetMyCompanies(c *gin.Context) {
 	// Every business this person works in, not only the ones they own — a counter boy
 	// has no company of his own, and without this his app would open on an empty shelf.
 	// An owner sees exactly what they saw before, now with the word for what they are.
-	rows, err := h.db.DB.Query(`
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
         SELECT c.id, c.user_id, c.name, c.address, c.phone, c.gst, c.city, c.state, c.pincode,
                COALESCE(m.role, CASE WHEN c.user_id = $1 THEN 'owner' ELSE '' END)
         FROM companies c
@@ -171,7 +173,8 @@ func (h *CompanyHandler) UpdateCompany(c *gin.Context) {
 	}
 
 	// Ownership comes from the stored row, never from the body.
-	result, err := h.db.DB.Exec(`
+	result, err := h.db.DB.ExecContext(c.Request.Context(),
+		`
 		UPDATE companies
 		SET name = $1, address = $2, phone = $3, gst = $4,
 		    city = $5, state = $6, pincode = $7

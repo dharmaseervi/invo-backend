@@ -181,7 +181,8 @@ var routePermissions = map[string]Permission{
 	"GET /api/v1/dashboard":                          PermSeeReports,
 	"GET /api/v1/companies/:companyId/reports/gstr1": PermSeeReports,
 	"GET /api/v1/companies/:companyId/reports/aging": PermSeeReports,
-	"GET /api/v1/companies/:companyId/reports/stock": PermSeeReports,
+	"GET /api/v1/companies/:companyId/reports/stock":        PermSeeReports,
+	"GET /api/v1/companies/:companyId/reports/profit-loss":  PermSeeReports,
 
 	// The shop's own settings. Reading the bank list is left to any member: an
 	// invoice prints those details, and somebody writing one may need to pick which

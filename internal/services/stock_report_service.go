@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"sort"
 	"strings"
@@ -14,8 +15,9 @@ const uncategorisedLabel = "Uncategorised"
 // GenerateStockReport summarizes current inventory for a company: total value at
 // cost and at retail, potential profit if everything sold, a per-category breakdown,
 // and the full item list so the client can filter, sort and export without paging.
-func GenerateStockReport(db *sql.DB, companyID int64) (*models.StockReportResponse, error) {
-	rows, err := db.Query(`
+func GenerateStockReport(ctx context.Context, db *sql.DB, companyID int64) (*models.StockReportResponse, error) {
+	rows, err := db.QueryContext(ctx,
+		`
 		SELECT i.id, i.name, COALESCE(i.sku, ''), i.category_id,
 		       COALESCE(c.name, ''), COALESCE(i.unit, ''),
 		       COALESCE(i.quantity, 0), COALESCE(i.cost_price, 0), i.price,

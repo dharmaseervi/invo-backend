@@ -122,6 +122,7 @@ func (h *PurchaseHandler) GetSuppliers(c *gin.Context) {
 	query := `
 		SELECT s.id, s.name, COALESCE(s.phone, ''), COALESCE(s.email, ''),
 		       COALESCE(s.gstin, ''), COALESCE(s.city, ''), COALESCE(s.state, ''),
+                   COALESCE(s.address, ''), COALESCE(s.pincode, ''), COALESCE(s.notes, ''),
 		       COALESCE((
 		           SELECT SUM(b.remaining_amount) FROM purchase_bills b
 		           WHERE b.supplier_id = s.id AND b.status IN ('unpaid', 'partial')
@@ -178,10 +179,11 @@ func (h *PurchaseHandler) GetSuppliers(c *gin.Context) {
 			id                        int64
 			name, phone, email, gstin string
 			city, state               string
+			address, pincode, notes   string
 			due, advance              float64
 			openBills                 int
 		)
-		if err := rows.Scan(&id, &name, &phone, &email, &gstin, &city, &state, &due, &openBills, &advance); err != nil {
+		if err := rows.Scan(&id, &name, &phone, &email, &gstin, &city, &state, &address, &pincode, &notes, &due, &openBills, &advance); err != nil {
 			log.Println("failed to scan supplier:", err)
 			continue
 		}
@@ -190,7 +192,7 @@ func (h *PurchaseHandler) GetSuppliers(c *gin.Context) {
 		out = append(out, gin.H{
 			"id": id, "name": name, "phone": phone, "email": email, "gstin": gstin,
 			"city": city, "state": state, "due": due, "open_bills": openBills,
-			"advance": advance,
+			"advance": advance, "address": address, "pincode": pincode, "notes": notes,
 		})
 	}
 
@@ -593,15 +595,15 @@ func (h *PurchaseHandler) UpdateSupplier(c *gin.Context) {
 	}
 
 	var req struct {
-		Name    string `json:"name"`
-		Phone   string `json:"phone"`
-		Email   string `json:"email"`
-		GSTIN   string `json:"gstin"`
-		Address string `json:"address"`
-		City    string `json:"city"`
-		State   string `json:"state"`
-		Pincode string `json:"pincode"`
-		Notes   string `json:"notes"`
+		Name    string  `json:"name"`
+		Phone   string  `json:"phone"`
+		Email   string  `json:"email"`
+		GSTIN   string  `json:"gstin"`
+		Address *string `json:"address"`
+		City    string  `json:"city"`
+		State   string  `json:"state"`
+		Pincode *string `json:"pincode"`
+		Notes   *string `json:"notes"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
@@ -618,11 +620,11 @@ func (h *PurchaseHandler) UpdateSupplier(c *gin.Context) {
 		    phone   = $2,
 		    email   = $3,
 		    gstin   = $4,
-		    address = $5,
+		    address = COALESCE($5, address),
 		    city    = $6,
 		    state   = $7,
-		    pincode = $8,
-		    notes   = $9,
+		    pincode = COALESCE($8, pincode),
+		    notes   = COALESCE($9, notes),
 		    updated_at = NOW()
 		WHERE id = $10 AND company_id = $11
 	`, strings.TrimSpace(req.Name), req.Phone, req.Email,
@@ -658,7 +660,7 @@ func (h *PurchaseHandler) CancelBill(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.CancelBill(c.Request.Context(), companyID, billID); err != nil {
+	if err := h.service.CancelBill(c.Request.Context(), companyID, billID, int64(c.GetInt("user_id"))); err != nil {
 		fail(c, err, "Failed to cancel that bill")
 		return
 	}

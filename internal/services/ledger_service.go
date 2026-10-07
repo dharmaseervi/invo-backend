@@ -18,7 +18,7 @@ func NewLedgerService(db *sql.DB) *LedgerService {
 }
 
 // Get last balance
-func (s *LedgerService) getLastBalanceTx(
+func (s *LedgerService) getLastBalanceTx(ctx context.Context,
 	tx *sql.Tx,
 	companyID, clientID int64,
 ) (float64, error) {
@@ -35,13 +35,15 @@ func (s *LedgerService) getLastBalanceTx(
 	// writers each insert their own row anyway, so there is no shared row to contend on.
 	// The client row always exists and is the same row for every writer, so it
 	// serialises them all.
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx,
+		`
 		SELECT 1 FROM clients WHERE id = $1 AND company_id = $2 FOR UPDATE
 	`, clientID, companyID); err != nil {
 		return 0, err
 	}
 
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(ctx,
+		`
 		SELECT balance
 		FROM ledger_entries
 		WHERE company_id = $1 AND client_id = $2
@@ -56,7 +58,7 @@ func (s *LedgerService) getLastBalanceTx(
 	return balance, err
 }
 
-func (s *LedgerService) AddEntryTx(
+func (s *LedgerService) AddEntryTx(ctx context.Context,
 	tx *sql.Tx,
 	companyID int64,
 	clientID int64,
@@ -67,7 +69,8 @@ func (s *LedgerService) AddEntryTx(
 	description string,
 ) error {
 
-	lastBalance, err := s.getLastBalanceTx(tx, companyID, clientID)
+	lastBalance, err := s.getLastBalanceTx(ctx,
+		tx, companyID, clientID)
 	if err != nil {
 		return err
 	}
@@ -80,7 +83,8 @@ func (s *LedgerService) AddEntryTx(
 		Round().
 		Float64()
 
-	_, err = tx.Exec(`
+	_, err = tx.ExecContext(ctx,
+		`
 		INSERT INTO ledger_entries (
 			company_id,
 			client_id,

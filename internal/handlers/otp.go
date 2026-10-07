@@ -57,7 +57,7 @@ func (h *OTPHandler) SendOTP(c *gin.Context) {
 
 	// Check user exists
 	var userExists bool
-	h.db.DB.QueryRow(
+	h.db.DB.QueryRowContext(c.Request.Context(),
 		`SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = $1)`,
 		req.Email,
 	).Scan(&userExists)
@@ -68,7 +68,7 @@ func (h *OTPHandler) SendOTP(c *gin.Context) {
 	}
 
 	// Invalidate old OTPs
-	h.db.DB.Exec(
+	h.db.DB.ExecContext(c.Request.Context(),
 		`UPDATE otp_codes SET used = TRUE WHERE email = $1 AND used = FALSE`,
 		req.Email,
 	)
@@ -88,7 +88,7 @@ func (h *OTPHandler) SendOTP(c *gin.Context) {
 		return
 	}
 
-	_, err = h.db.DB.Exec(
+	_, err = h.db.DB.ExecContext(c.Request.Context(),
 		`INSERT INTO otp_codes (email, code, expires_at) VALUES ($1, $2, $3)`,
 		req.Email, codeHash, expiresAt,
 	)
@@ -128,7 +128,8 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 
 	// Codes are stored hashed, so verification compares against the newest live row
 	// and burns it after too many wrong guesses.
-	if err := consumeOneTimeCode(h.db.DB, "otp_codes", req.Email, req.Code); err != nil {
+	if err := consumeOneTimeCode(c.Request.Context(),
+		h.db.DB, "otp_codes", req.Email, req.Code); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired OTP"})
 		return
 	}
@@ -139,7 +140,7 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 	var userID int
 	var email string
 	var isVerified bool
-	err = h.db.DB.QueryRow(
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
 		`SELECT id, email, COALESCE(is_verified, false) FROM users WHERE lower(email) = $1`,
 		req.Email,
 	).Scan(&userID, &email, &isVerified)
@@ -159,7 +160,8 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 		"email":   email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(24 * time.Hour).Unix(),
-		"sv":      sessionVersion(h.db.DB, int64(userID)),
+		"sv": sessionVersion(c.Request.Context(),
+			h.db.DB, int64(userID)),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(h.jwtSecret)

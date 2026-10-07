@@ -32,6 +32,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	gstReportHandler := handlers.NewGSTReportHandler(db.DB)
 	agingReportHandler := handlers.NewAgingReportHandler(db.DB)
 	stockReportHandler := handlers.NewStockReportHandler(db.DB)
+	profitLossHandler := handlers.NewProfitLossHandler(db.DB)
 	estimateHandler := handlers.NewEstimateHandler(db)
 	pushService := services.NewPushService(db.DB, cfg)
 	deviceTokenHandler := handlers.NewDeviceTokenHandler(pushService)
@@ -255,6 +256,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/companies/:companyId/reports/gstr1", gstReportHandler.GetGSTReport)
 		protected.GET("/companies/:companyId/reports/aging", agingReportHandler.GetAgingReport)
 		protected.GET("/companies/:companyId/reports/stock", stockReportHandler.GetStockReport)
+		protected.GET("/companies/:companyId/reports/profit-loss", profitLossHandler.GetProfitLoss)
 
 		protected.GET("/companies/:companyId/banks", companyBankHandlerss.List)
 		protected.POST("/companies/:companyId/banks", companyBankHandlerss.Create)

@@ -33,7 +33,8 @@ func (h *clientHandler) CreateClient(c *gin.Context) {
 
 	// Ensure company belongs to this user
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -49,7 +50,8 @@ func (h *clientHandler) CreateClient(c *gin.Context) {
 	// invoice needs the client's billing address, which is stored separately, and
 	// without the id the caller had no way to attach one to the client it just made.
 	var clientID int
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         INSERT INTO clients (name, email, phone, address, city, state, pincode, company_id, user_id)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING id
@@ -71,7 +73,8 @@ func (h *clientHandler) GetClients(c *gin.Context) {
 
 	// 1️⃣ Check if this company belongs to this user
 	var exists bool
-	h.db.DB.QueryRow(`
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -122,7 +125,8 @@ func (h *clientHandler) GetClients(c *gin.Context) {
 		args = append(args, limit, mustAtoi(c.Query("offset")))
 	}
 
-	rows, err := h.db.DB.Query(query, args...)
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		query, args...)
 	if err != nil {
 		log.Println("failed to fetch clients:", err)
 		c.JSON(500, gin.H{"error": "Failed to fetch clients"})
@@ -180,7 +184,8 @@ func (h *clientHandler) UpdateClient(c *gin.Context) {
 
 	// Ownership is checked against the stored row, never a company id from the body.
 	var owned bool
-	if err := h.db.DB.QueryRow(`
+	if err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS(
 			SELECT 1 FROM clients cl
 			JOIN companies co ON co.id = cl.company_id
@@ -191,7 +196,8 @@ func (h *clientHandler) UpdateClient(c *gin.Context) {
 		return
 	}
 
-	result, err := h.db.DB.Exec(`
+	result, err := h.db.DB.ExecContext(c.Request.Context(),
+		`
 		UPDATE clients
 		SET name = $1, email = $2, phone = $3, address = $4,
 		    city = $5, state = $6, pincode = $7, updated_at = NOW()
@@ -225,7 +231,8 @@ func (h *clientHandler) DeleteClient(c *gin.Context) {
 	userID := c.GetInt("user_id")
 
 	var owned bool
-	if err := h.db.DB.QueryRow(`
+	if err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS(
 			SELECT 1 FROM clients cl
 			JOIN companies co ON co.id = cl.company_id
@@ -237,7 +244,8 @@ func (h *clientHandler) DeleteClient(c *gin.Context) {
 	}
 
 	var referenced bool
-	if err := h.db.DB.QueryRow(`
+	if err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS(SELECT 1 FROM invoices WHERE client_id = $1)
 		    OR EXISTS(SELECT 1 FROM estimates WHERE client_id = $1)
 		    OR EXISTS(SELECT 1 FROM payments WHERE client_id = $1)
@@ -254,7 +262,8 @@ func (h *clientHandler) DeleteClient(c *gin.Context) {
 		return
 	}
 
-	if _, err := h.db.DB.Exec(`DELETE FROM clients WHERE id = $1`, clientID); err != nil {
+	if _, err := h.db.DB.ExecContext(c.Request.Context(),
+		`DELETE FROM clients WHERE id = $1`, clientID); err != nil {
 		log.Println("failed to delete client:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete client"})
 		return

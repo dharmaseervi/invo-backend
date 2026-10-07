@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/csv"
 	"os"
@@ -118,7 +119,8 @@ func TestXLSXToCSVFeedsTheSameParser(t *testing.T) {
 
 	// The whole point of converting rather than writing a second parser: the column
 	// detection that already works for CSV has to work on a workbook unchanged.
-	preview, err := ParseItemCSV(db, 0, out, nil)
+	preview, err := ParseItemCSV(context.Background(),
+		db, 0, out, nil)
 	if err != nil {
 		t.Fatalf("the converted sheet did not parse: %v", err)
 	}

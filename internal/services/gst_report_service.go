@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"strconv"
 	"strings"
@@ -14,14 +15,16 @@ import (
 // decided by comparing the company's registered state against the invoice's billing state
 // (the place of supply) — same state means intrastate (CGST+SGST split), otherwise
 // interstate (IGST).
-func GenerateGSTReport(db *sql.DB, companyID int64, start, end string) (*models.GSTReportResponse, error) {
+func GenerateGSTReport(ctx context.Context, db *sql.DB, companyID int64, start, end string) (*models.GSTReportResponse, error) {
 
 	var companyState string
-	if err := db.QueryRow(`SELECT COALESCE(state, '') FROM companies WHERE id = $1`, companyID).Scan(&companyState); err != nil {
+	if err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(state, '') FROM companies WHERE id = $1`, companyID).Scan(&companyState); err != nil {
 		return nil, err
 	}
 
-	rows, err := db.Query(`
+	rows, err := db.QueryContext(ctx,
+		`
 		SELECT
 			i.id,
 			i.invoice_number,
@@ -148,7 +151,8 @@ func GenerateGSTReport(db *sql.DB, companyID int64, start, end string) (*models.
 	// CDNR: credit notes issued in the period. These were excluded entirely, so the
 	// return declared the full original supply even after goods came back — tax
 	// payable on value that was credited to the customer.
-	creditNotes, creditTotals, err := fetchCreditNotes(db, companyID, start, end, companyState)
+	creditNotes, creditTotals, err := fetchCreditNotes(ctx,
+		db, companyID, start, end, companyState)
 	if err != nil {
 		return nil, err
 	}
@@ -176,12 +180,13 @@ func GenerateGSTReport(db *sql.DB, companyID int64, start, end string) (*models.
 
 // fetchCreditNotes returns the period's credit notes and their combined tax, split the
 // same way invoices are: the place of supply decides CGST+SGST against IGST.
-func fetchCreditNotes(
+func fetchCreditNotes(ctx context.Context,
 	db *sql.DB, companyID int64, start, end, companyState string,
 ) ([]models.GSTCreditNoteRow, models.GSTSummary, error) {
 
 	var totals models.GSTSummary
-	rows, err := db.Query(`
+	rows, err := db.QueryContext(ctx,
+		`
 		SELECT cn.id, cn.credit_number, TO_CHAR(cn.credit_date, 'YYYY-MM-DD'),
 		       COALESCE(c.name, ''), COALESCE(ia.gst_number, ''), COALESCE(ia.state, ''),
 		       COALESCE(i.invoice_number, ''), COALESCE(cn.reason, ''),

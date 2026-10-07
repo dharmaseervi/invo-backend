@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"log"
@@ -37,7 +38,7 @@ func (h *PaymentHandler) RecordPayment(c *gin.Context) {
 		return
 	}
 
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "tx failed"})
 		return
@@ -46,7 +47,8 @@ func (h *PaymentHandler) RecordPayment(c *gin.Context) {
 
 	// auth
 	var companyID int64
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		SELECT c.id
 		FROM clients cl
 		JOIN companies c ON c.id = cl.company_id
@@ -58,7 +60,8 @@ func (h *PaymentHandler) RecordPayment(c *gin.Context) {
 		return
 	}
 
-	err = h.service.RecordPaymentTx(tx, companyID, req.ClientID, req)
+	err = h.service.RecordPaymentTx(c.Request.Context(),
+		tx, companyID, req.ClientID, req)
 	if err != nil {
 		var input services.PaymentInputError
 		if errors.As(err, &input) {
@@ -96,7 +99,8 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 	}
 	userID := c.GetInt("user_id")
 
-	owned, err := companyBelongsToUser(h.db.DB, companyID, userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db.DB, companyID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -109,7 +113,8 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 	limit := clampPageSize(mustAtoi(c.DefaultQuery("limit", "50")), 50)
 	offset := mustAtoi(c.DefaultQuery("offset", "0"))
 
-	rows, err := h.db.DB.Query(`
+	rows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`
 		SELECT p.id, p.client_id, COALESCE(cl.name, ''), p.amount,
 		       COALESCE(p.payment_method, ''), COALESCE(p.reference, ''), COALESCE(p.notes, ''),
 		       TO_CHAR(p.payment_date, 'YYYY-MM-DD'),
@@ -159,7 +164,8 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 	// The invoices each payment settled, for the whole page in one query rather than
 	// one per payment: moving a payment needs to show what it is on now, and a screen
 	// that costs fifty round trips to open is a screen nobody opens twice.
-	if err := attachAllocations(h.db.DB, payments); err != nil {
+	if err := attachAllocations(c.Request.Context(),
+		h.db.DB, payments); err != nil {
 		log.Println("failed to fetch payment allocations:", err)
 	}
 
@@ -167,7 +173,7 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 }
 
 // attachAllocations fills in each payment's invoice breakdown.
-func attachAllocations(db *sql.DB, payments []models.PaymentHistoryRow) error {
+func attachAllocations(ctx context.Context, db *sql.DB, payments []models.PaymentHistoryRow) error {
 	if len(payments) == 0 {
 		return nil
 	}
@@ -176,7 +182,8 @@ func attachAllocations(db *sql.DB, payments []models.PaymentHistoryRow) error {
 		ids = append(ids, p.ID)
 	}
 
-	rows, err := db.Query(`
+	rows, err := db.QueryContext(ctx,
+		`
 		SELECT pa.payment_id, pa.invoice_id, COALESCE(i.invoice_number, ''), pa.amount
 		FROM payment_allocations pa
 		LEFT JOIN invoices i ON i.id = pa.invoice_id

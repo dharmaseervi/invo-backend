@@ -49,7 +49,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	// Check if user already exists
 	var exists bool
-	err := h.db.DB.QueryRow(
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
 		"SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = $1)",
 		user.Email,
 	).Scan(&exists)
@@ -71,7 +71,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	// Insert user — is_verified = FALSE by default
 	var id int
-	err = h.db.DB.QueryRow(`
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         INSERT INTO users (email, password_hash, is_verified)
         VALUES ($1, $2, FALSE)
         RETURNING id`,
@@ -95,7 +96,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate OTP"})
 		return
 	}
-	_, err = h.db.DB.Exec(
+	_, err = h.db.DB.ExecContext(c.Request.Context(),
 		`INSERT INTO otp_codes (email, code, expires_at) VALUES ($1, $2, $3)`,
 		user.Email, codeHash, expiresAt,
 	)
@@ -144,7 +145,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Step 1 — Get user from database FIRST
 	var user models.User
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
         SELECT id, email, password_hash 
         FROM users 
         WHERE lower(email) = $1`,
@@ -170,7 +172,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// Step 4 — Check if email is verified (AFTER confirming user exists)
 	var isVerified bool
-	h.db.DB.QueryRow(
+	h.db.DB.QueryRowContext(c.Request.Context(),
 		`SELECT is_verified FROM users WHERE lower(email) = $1`, login.Email,
 	).Scan(&isVerified)
 
@@ -190,7 +192,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"email":   user.Email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(h.tokenExpiration).Unix(),
-		"sv":      sessionVersion(h.db.DB, int64(user.ID)),
+		"sv": sessionVersion(c.Request.Context(),
+			h.db.DB, int64(user.ID)),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -234,14 +237,15 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	}
 
 	// Check OTP
-	if err := consumeOneTimeCode(h.db.DB, "otp_codes", req.Email, req.Code); err != nil {
+	if err := consumeOneTimeCode(c.Request.Context(),
+		h.db.DB, "otp_codes", req.Email, req.Code); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired OTP"})
 		return
 	}
 	var err error
 
 	// Mark user as verified
-	_, err = h.db.DB.Exec(
+	_, err = h.db.DB.ExecContext(c.Request.Context(),
 		`UPDATE users SET is_verified = TRUE WHERE lower(email) = $1`,
 		req.Email,
 	)
@@ -252,7 +256,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 
 	// Get user details
 	var userID int
-	h.db.DB.QueryRow(
+	h.db.DB.QueryRowContext(c.Request.Context(),
 		`SELECT id FROM users WHERE lower(email) = $1`, req.Email,
 	).Scan(&userID)
 
@@ -263,7 +267,8 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		"email":   req.Email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(h.tokenExpiration).Unix(),
-		"sv":      sessionVersion(h.db.DB, int64(userID)),
+		"sv": sessionVersion(c.Request.Context(),
+			h.db.DB, int64(userID)),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(h.jwtSecret)
@@ -304,7 +309,7 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 
 	// Check user exists and not verified
 	var isVerified bool
-	err := h.db.DB.QueryRow(
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
 		`SELECT is_verified FROM users WHERE lower(email) = $1`, req.Email,
 	).Scan(&isVerified)
 	if err != nil {
@@ -317,7 +322,7 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	}
 
 	// Invalidate old OTPs
-	h.db.DB.Exec(
+	h.db.DB.ExecContext(c.Request.Context(),
 		`UPDATE otp_codes SET used = TRUE WHERE email = $1 AND used = FALSE`,
 		req.Email,
 	)
@@ -330,7 +335,7 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate OTP"})
 		return
 	}
-	h.db.DB.Exec(
+	h.db.DB.ExecContext(c.Request.Context(),
 		`INSERT INTO otp_codes (email, code, expires_at) VALUES ($1, $2, $3)`,
 		req.Email, resendHash, expiresAt,
 	)
@@ -364,7 +369,8 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		"email":   email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(h.tokenExpiration).Unix(),
-		"sv":      sessionVersion(h.db.DB, int64(c.GetInt("user_id"))),
+		"sv": sessionVersion(c.Request.Context(),
+			h.db.DB, int64(c.GetInt("user_id"))),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -391,7 +397,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	// valid until it expires. Moving the cutoff forward refuses every token already
 	// issued to this user, so logging out actually ends the session.
 	if userID, exists := c.Get("user_id"); exists {
-		if _, err := h.db.DB.Exec(
+		if _, err := h.db.DB.ExecContext(c.Request.Context(),
 			`UPDATE users SET tokens_valid_from = NOW(),
 			        session_version = session_version + 1
 			 WHERE id = $1`, userID,
@@ -477,7 +483,7 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 		{"users", `DELETE FROM users WHERE id = $1`},
 	}
 
-	tx, err := h.db.DB.Begin()
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		log.Printf("❌ Failed to start account deletion transaction: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
@@ -485,7 +491,8 @@ func (h *AuthHandler) DeleteAccount(c *gin.Context) {
 	}
 
 	for _, q := range queries {
-		if _, err := tx.Exec(q.query, userID); err != nil {
+		if _, err := tx.ExecContext(c.Request.Context(),
+			q.query, userID); err != nil {
 			tx.Rollback()
 			log.Printf("❌ Failed deleting %s for user %d: %v", q.name, userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
@@ -523,7 +530,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 
 	// Check user exists
 	var exists bool
-	h.db.DB.QueryRow(
+	h.db.DB.QueryRowContext(c.Request.Context(),
 		`SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = $1)`, req.Email,
 	).Scan(&exists)
 
@@ -534,7 +541,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	}
 
 	// Invalidate old tokens
-	h.db.DB.Exec(
+	h.db.DB.ExecContext(c.Request.Context(),
 		`UPDATE password_reset_tokens SET used = TRUE WHERE email = $1 AND used = FALSE`,
 		req.Email,
 	)
@@ -553,7 +560,7 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 		return
 	}
 
-	_, err = h.db.DB.Exec(
+	_, err = h.db.DB.ExecContext(c.Request.Context(),
 		`INSERT INTO password_reset_tokens (email, code, expires_at) VALUES ($1, $2, $3)`,
 		req.Email, codeHash, expiresAt,
 	)
@@ -594,7 +601,8 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 
 	// Reset codes are stored hashed and burned after too many wrong guesses, the same
 	// as login OTPs — this is the path an attacker would grind to take over an account.
-	if err := consumeOneTimeCode(h.db.DB, "password_reset_tokens", req.Email, req.Code); err != nil {
+	if err := consumeOneTimeCode(c.Request.Context(),
+		h.db.DB, "password_reset_tokens", req.Email, req.Code); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired code"})
 		return
 	}
@@ -610,7 +618,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	// Update password, and cut off every token issued before it. A password reset is
 	// how someone recovers a compromised account, so it has to boot any session the
 	// attacker still holds rather than leaving them signed in.
-	_, err = h.db.DB.Exec(
+	_, err = h.db.DB.ExecContext(c.Request.Context(),
 		`UPDATE users SET password_hash = $1, tokens_valid_from = NOW(),
 		        session_version = session_version + 1
 		 WHERE lower(email) = $2`,
@@ -625,7 +633,8 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 
 	// Generate JWT — log them in automatically
 	var userID int
-	h.db.DB.QueryRow(`SELECT id FROM users WHERE lower(email) = $1`, req.Email).Scan(&userID)
+	h.db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT id FROM users WHERE lower(email) = $1`, req.Email).Scan(&userID)
 
 	now := time.Now()
 	claims := jwt.MapClaims{
@@ -633,7 +642,8 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		"email":   req.Email,
 		"iat":     now.Unix(),
 		"exp":     now.Add(h.tokenExpiration).Unix(),
-		"sv":      sessionVersion(h.db.DB, int64(userID)),
+		"sv": sessionVersion(c.Request.Context(),
+			h.db.DB, int64(userID)),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(h.jwtSecret)

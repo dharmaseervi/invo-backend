@@ -27,7 +27,8 @@ func (h *GSTReportHandler) GetGSTReport(c *gin.Context) {
 	}
 
 	userID := c.GetInt("user_id")
-	owned, err := companyBelongsToUser(h.db, companyID, userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -44,7 +45,8 @@ func (h *GSTReportHandler) GetGSTReport(c *gin.Context) {
 		return
 	}
 
-	report, err := services.GenerateGSTReport(h.db, companyID, start, end)
+	report, err := services.GenerateGSTReport(c.Request.Context(),
+		h.db, companyID, start, end)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report"})
 		return

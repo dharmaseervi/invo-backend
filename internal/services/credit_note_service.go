@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"strconv"
 
@@ -16,7 +17,7 @@ func NewCreditNoteService(db *sql.DB, ledger *LedgerService) *CreditNoteService 
 	return &CreditNoteService{db: db, ledger: ledger}
 }
 
-func (s *CreditNoteService) CreateTx(
+func (s *CreditNoteService) CreateTx(ctx context.Context,
 	tx *sql.Tx,
 	companyID int64,
 	req models.CreditNoteRequestDTO,
@@ -41,7 +42,7 @@ func (s *CreditNoteService) CreateTx(
 	// And an invoice must have been issued: a credit note against a draft cut the
 	// draft's balance and could mark it paid before it was ever sent.
 	var clientOK bool
-	if err := tx.QueryRow(
+	if err := tx.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM clients WHERE id = $1 AND company_id = $2)`,
 		req.ClientID, companyID,
 	).Scan(&clientOK); err != nil {
@@ -57,7 +58,7 @@ func (s *CreditNoteService) CreateTx(
 		// both passed — so an invoice for 2 could be returned twice over, crediting the
 		// customer twice and putting four items back into stock. Locking the invoice
 		// makes the second one wait and then see the first one's credit note.
-		err := tx.QueryRow(
+		err := tx.QueryRowContext(ctx,
 			`SELECT status FROM invoices WHERE id = $1 AND company_id = $2 AND client_id = $3
 			 FOR UPDATE`,
 			*req.InvoiceID, companyID, req.ClientID,
@@ -94,7 +95,7 @@ func (s *CreditNoteService) CreateTx(
 				return CreditNoteInputError{"A returned line's GST rate must be between 0 and 100."}
 			}
 			var itemOK bool
-			if err := tx.QueryRow(
+			if err := tx.QueryRowContext(ctx,
 				`SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND company_id = $2)`,
 				it.ItemID, companyID,
 			).Scan(&itemOK); err != nil {
@@ -121,7 +122,7 @@ func (s *CreditNoteService) CreateTx(
 		}
 		for itemID, qty := range wanted {
 			var sold, returned float64
-			if err := tx.QueryRow(
+			if err := tx.QueryRowContext(ctx,
 				`SELECT COALESCE(SUM(qty), 0) FROM invoice_items WHERE invoice_id = $1 AND item_id = $2`,
 				*req.InvoiceID, itemID,
 			).Scan(&sold); err != nil {
@@ -130,7 +131,8 @@ func (s *CreditNoteService) CreateTx(
 			if sold == 0 {
 				return CreditNoteInputError{"One of the returned items isn't on that invoice."}
 			}
-			if err := tx.QueryRow(`
+			if err := tx.QueryRowContext(ctx,
+				`
 				SELECT COALESCE(SUM(cni.qty), 0)
 				FROM credit_note_items cni
 				JOIN credit_notes cn ON cn.id = cni.credit_note_id
@@ -170,7 +172,8 @@ func (s *CreditNoteService) CreateTx(
 
 	// 3️⃣ Generate credit number
 	var creditNumber string
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(ctx,
+		`
 		SELECT 'CN-' || TO_CHAR(NOW(),'YYYY') || '-' ||
 		       LPAD(nextval('credit_note_seq')::text,5,'0')
 	`).Scan(&creditNumber)
@@ -180,7 +183,8 @@ func (s *CreditNoteService) CreateTx(
 
 	// 4️⃣ Insert credit note
 	var cnID int64
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx,
+		`
 		INSERT INTO credit_notes (
 			company_id, client_id, invoice_id,
 			credit_number, type, reason, credit_date,
@@ -211,7 +215,8 @@ func (s *CreditNoteService) CreateTx(
 			lineBase := it.Qty * it.Rate
 			lineTax := lineBase * it.TaxRate / 100
 
-			_, err = tx.Exec(`
+			_, err = tx.ExecContext(ctx,
+				`
 				INSERT INTO credit_note_items
 					(credit_note_id, item_id, qty, rate, tax_rate, total)
 				VALUES ($1,$2,$3,$4,$5,$6)
@@ -236,7 +241,8 @@ func (s *CreditNoteService) CreateTx(
 	// inventory. The movement is logged rather than silently adjusted, so the stock
 	// audit trail explains where the quantity came from.
 	if req.Type == "return" {
-		if _, err = tx.Exec(`
+		if _, err = tx.ExecContext(ctx,
+			`
 			UPDATE items it
 			SET quantity = it.quantity + agg.total_qty
 			FROM (
@@ -248,7 +254,8 @@ func (s *CreditNoteService) CreateTx(
 			return err
 		}
 
-		if _, err = tx.Exec(`
+		if _, err = tx.ExecContext(ctx,
+			`
 			INSERT INTO stock_movements (item_id, company_id, user_id, movement_type, quantity_change, previous_quantity, new_quantity, reference, note)
 			SELECT it.id, $2, (SELECT user_id FROM companies WHERE id = $2),
 			       'adjustment', agg.total_qty, it.quantity - agg.total_qty, it.quantity, $3, 'Goods returned'
@@ -270,7 +277,8 @@ func (s *CreditNoteService) CreateTx(
 	// outstanding balance so a credit note larger than the invoice cannot drive it
 	// negative, and the status follows the new balance.
 	if req.InvoiceID != nil {
-		if _, err = tx.Exec(`
+		if _, err = tx.ExecContext(ctx,
+			`
 			UPDATE invoices
 			SET remaining_amount = GREATEST(remaining_amount - $1, 0),
 			    status = CASE
@@ -290,7 +298,7 @@ func (s *CreditNoteService) CreateTx(
 		narration = "Discount credit note issued"
 	}
 
-	return s.ledger.AddEntryTx(
+	return s.ledger.AddEntryTx(ctx,
 		tx,
 		companyID,
 		req.ClientID,
@@ -306,7 +314,7 @@ func (s *CreditNoteService) CreateTx(
 //
 // limit of 0 means the whole list, which is what the apps already in the store ask for;
 // a caller that pages gets a stable order, since credit_date alone is not unique.
-func (s *CreditNoteService) GetAll(
+func (s *CreditNoteService) GetAll(ctx context.Context,
 	companyID int64,
 	search string,
 	creditType string,
@@ -347,7 +355,8 @@ func (s *CreditNoteService) GetAll(
 		args = append(args, limit, offset)
 	}
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx,
+		query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +385,7 @@ func (s *CreditNoteService) GetAll(
 	return result, nil
 }
 
-func (s *CreditNoteService) GetByID(
+func (s *CreditNoteService) GetByID(ctx context.Context,
 	tx *sql.Tx,
 	companyID int64,
 	creditNoteID int64,
@@ -384,7 +393,8 @@ func (s *CreditNoteService) GetByID(
 
 	var cn models.CreditNoteDetailResponse
 
-	err := tx.QueryRow(`
+	err := tx.QueryRowContext(ctx,
+		`
 		SELECT
 			cn.id,
 			cn.credit_number,
@@ -428,7 +438,8 @@ func (s *CreditNoteService) GetByID(
 	}
 
 	// 🔴 Fetch items only for return type
-	rows, err := tx.Query(`
+	rows, err := tx.QueryContext(ctx,
+		`
 		SELECT
 			cni.id,
 			cni.item_id,
@@ -477,7 +488,7 @@ func (e CreditNoteInputError) Error() string { return e.Msg }
 
 // Summary counts a company's credit notes and what they came to, over everything that
 // matches rather than the page a screen happens to hold.
-func (s *CreditNoteService) Summary(
+func (s *CreditNoteService) Summary(ctx context.Context,
 	companyID int64,
 	search string,
 ) (models.CreditNoteSummary, error) {
@@ -501,7 +512,8 @@ func (s *CreditNoteService) Summary(
 		args = append(args, "%"+search+"%")
 	}
 
-	err := s.db.QueryRow(query, args...).Scan(
+	err := s.db.QueryRowContext(ctx,
+		query, args...).Scan(
 		&out.Total, &out.Returns, &out.Adjustments, &out.Discounts, &out.Amount, &out.Balance,
 	)
 	return out, err
@@ -520,11 +532,11 @@ func (s *CreditNoteService) Summary(
 //
 // Both rows are locked while the figures are read and changed, so two people applying
 // the same credit note at once cannot each spend the whole balance.
-func (s *CreditNoteService) ApplyToInvoice(
+func (s *CreditNoteService) ApplyToInvoice(ctx context.Context,
 	companyID, creditNoteID, invoiceID int64,
 	amount float64,
 ) (applied float64, err error) {
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -533,7 +545,8 @@ func (s *CreditNoteService) ApplyToInvoice(
 	var balance float64
 	var status string
 	var clientID int64
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx,
+		`
 		SELECT balance, status, client_id FROM credit_notes
 		WHERE id = $1 AND company_id = $2
 		FOR UPDATE
@@ -556,7 +569,8 @@ func (s *CreditNoteService) ApplyToInvoice(
 	// two customers' accounts with nothing recording that it happened.
 	var remaining float64
 	var invoiceStatus string
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx,
+		`
 		SELECT COALESCE(remaining_amount, total - COALESCE(paid_amount, 0)), status
 		FROM invoices
 		WHERE id = $1 AND company_id = $2 AND client_id = $3
@@ -591,7 +605,8 @@ func (s *CreditNoteService) ApplyToInvoice(
 		applied = remaining
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx,
+		`
 		UPDATE invoices
 		SET paid_amount = COALESCE(paid_amount, 0) + $2,
 		    remaining_amount = COALESCE(remaining_amount, total - COALESCE(paid_amount, 0)) - $2,
@@ -604,7 +619,8 @@ func (s *CreditNoteService) ApplyToInvoice(
 		return 0, err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx,
+		`
 		UPDATE credit_notes
 		SET balance = balance - $2,
 		    status = CASE WHEN balance - $2 <= 0 THEN 'settled' ELSE status END

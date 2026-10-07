@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
@@ -30,7 +31,7 @@ func hashOneTimeCode(code string) (string, error) {
 //
 // table is matched against a fixed set rather than interpolated, so it can never carry
 // caller-controlled text into the query.
-func consumeOneTimeCode(db *sql.DB, table, email, code string) error {
+func consumeOneTimeCode(ctx context.Context, db *sql.DB, table, email, code string) error {
 	var selectQuery, attemptQuery, consumeQuery string
 
 	switch table {
@@ -52,23 +53,27 @@ func consumeOneTimeCode(db *sql.DB, table, email, code string) error {
 
 	var id, attempts int
 	var storedHash string
-	if err := db.QueryRow(selectQuery, email).Scan(&id, &storedHash, &attempts); err != nil {
+	if err := db.QueryRowContext(ctx,
+		selectQuery, email).Scan(&id, &storedHash, &attempts); err != nil {
 		return errInvalidCode
 	}
 
 	if attempts >= maxCodeAttempts {
-		_, _ = db.Exec(consumeQuery, id)
+		_, _ = db.ExecContext(ctx,
+			consumeQuery, id)
 		return errInvalidCode
 	}
 
 	if bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(code)) != nil {
-		_, _ = db.Exec(attemptQuery, id)
+		_, _ = db.ExecContext(ctx,
+			attemptQuery, id)
 		return errInvalidCode
 	}
 
 	// Guarded by used = FALSE so two requests racing on the same valid code cannot both
 	// succeed — exactly one UPDATE reports a row.
-	result, err := db.Exec(consumeQuery, id)
+	result, err := db.ExecContext(ctx,
+		consumeQuery, id)
 	if err != nil {
 		return errInvalidCode
 	}

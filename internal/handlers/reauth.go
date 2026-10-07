@@ -51,7 +51,8 @@ func confirmAccountPassword(c *gin.Context, db *sql.DB, userID int) error {
 	}
 
 	var hash string
-	if err := db.QueryRow(`SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash); err != nil {
+	if err := db.QueryRowContext(c.Request.Context(),
+		`SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return err
 	}

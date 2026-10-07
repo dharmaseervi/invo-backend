@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -48,13 +49,14 @@ func TestReturnCreditNoteCannotTouchAnotherCompanysStock(t *testing.T) {
 
 	// The attack: the attacker's own company and client, the victim's item id.
 	err = inTx(t, db, func(tx *sql.Tx) error {
-		return svc.CreateTx(tx, attacker.companyID, models.CreditNoteRequestDTO{
-			ClientID:   attacker.clientID,
-			CompanyID:  attacker.companyID,
-			Type:       "return",
-			CreditDate: "2026-09-29",
-			Items:      []models.CreditNoteItemDTO{{ItemID: victimItem, Qty: 500, Rate: 1}},
-		})
+		return svc.CreateTx(context.Background(),
+			tx, attacker.companyID, models.CreditNoteRequestDTO{
+				ClientID:   attacker.clientID,
+				CompanyID:  attacker.companyID,
+				Type:       "return",
+				CreditDate: "2026-09-29",
+				Items:      []models.CreditNoteItemDTO{{ItemID: victimItem, Qty: 500, Rate: 1}},
+			})
 	})
 	if err == nil {
 		t.Fatal("a return naming another company's item was accepted")
@@ -74,11 +76,12 @@ func TestReturnCreditNoteCannotTouchAnotherCompanysStock(t *testing.T) {
 		{ItemID: attackerItem, Qty: 1, Rate: 10, TaxRate: 900},
 	} {
 		err := inTx(t, db, func(tx *sql.Tx) error {
-			return svc.CreateTx(tx, attacker.companyID, models.CreditNoteRequestDTO{
-				ClientID: attacker.clientID, CompanyID: attacker.companyID,
-				Type: "return", CreditDate: "2026-09-29",
-				Items: []models.CreditNoteItemDTO{line},
-			})
+			return svc.CreateTx(context.Background(),
+				tx, attacker.companyID, models.CreditNoteRequestDTO{
+					ClientID: attacker.clientID, CompanyID: attacker.companyID,
+					Type: "return", CreditDate: "2026-09-29",
+					Items: []models.CreditNoteItemDTO{line},
+				})
 		})
 		if err == nil {
 			t.Fatalf("line %+v was accepted", line)
@@ -87,11 +90,12 @@ func TestReturnCreditNoteCannotTouchAnotherCompanysStock(t *testing.T) {
 
 	// And the ordinary case still works: the attacker's own item goes back into stock.
 	if err := inTx(t, db, func(tx *sql.Tx) error {
-		return svc.CreateTx(tx, attacker.companyID, models.CreditNoteRequestDTO{
-			ClientID: attacker.clientID, CompanyID: attacker.companyID,
-			Type: "return", CreditDate: "2026-09-29",
-			Items: []models.CreditNoteItemDTO{{ItemID: attackerItem, Qty: 3, Rate: 100, TaxRate: 18}},
-		})
+		return svc.CreateTx(context.Background(),
+			tx, attacker.companyID, models.CreditNoteRequestDTO{
+				ClientID: attacker.clientID, CompanyID: attacker.companyID,
+				Type: "return", CreditDate: "2026-09-29",
+				Items: []models.CreditNoteItemDTO{{ItemID: attackerItem, Qty: 3, Rate: 100, TaxRate: 18}},
+			})
 	}); err != nil {
 		t.Fatalf("a legitimate return failed: %v", err)
 	}
@@ -113,14 +117,17 @@ func newAccount(t *testing.T, db *sql.DB, label string) account {
 	email := unique + "@test.invalid"
 	// Registered before the inserts, so anything created below is removed even if a
 	// later insert fails (the company, client and items go with the user).
-	t.Cleanup(func() { db.Exec(`DELETE FROM users WHERE email = $1`, email) })
-	must(t, db.QueryRow(
+	t.Cleanup(func() {
+		db.ExecContext(context.Background(),
+			`DELETE FROM users WHERE email = $1`, email)
+	})
+	must(t, db.QueryRowContext(context.Background(),
 		`INSERT INTO users (email, password_hash, is_verified, created_at, updated_at, tokens_valid_from)
 		 VALUES ($1, 'x', true, NOW(), NOW(), NOW()) RETURNING id`, email).Scan(&a.userID))
-	must(t, db.QueryRow(
+	must(t, db.QueryRowContext(context.Background(),
 		`INSERT INTO companies (user_id, name, state) VALUES ($1, $2, 'Karnataka') RETURNING id`,
 		a.userID, unique+" Co").Scan(&a.companyID))
-	must(t, db.QueryRow(
+	must(t, db.QueryRowContext(context.Background(),
 		`INSERT INTO clients (company_id, user_id, name, email) VALUES ($1, $2, $3, $4) RETURNING id`,
 		a.companyID, a.userID, label+" Client", email).Scan(&a.clientID))
 	return a
@@ -129,7 +136,7 @@ func newAccount(t *testing.T, db *sql.DB, label string) account {
 func newItem(t *testing.T, db *sql.DB, a account, name string, qty int) int64 {
 	t.Helper()
 	var id int64
-	must(t, db.QueryRow(
+	must(t, db.QueryRowContext(context.Background(),
 		`INSERT INTO items (company_id, user_id, name, price, quantity, tax_rate)
 		 VALUES ($1, $2, $3, 100, $4, 18) RETURNING id`,
 		a.companyID, a.userID, name, qty).Scan(&id))
@@ -139,7 +146,8 @@ func newItem(t *testing.T, db *sql.DB, a account, name string, qty int) int64 {
 func quantityOf(t *testing.T, db *sql.DB, itemID int64) int {
 	t.Helper()
 	var qty int
-	must(t, db.QueryRow(`SELECT quantity FROM items WHERE id = $1`, itemID).Scan(&qty))
+	must(t, db.QueryRowContext(context.Background(),
+		`SELECT quantity FROM items WHERE id = $1`, itemID).Scan(&qty))
 	return qty
 }
 
@@ -148,7 +156,7 @@ func quantityOf(t *testing.T, db *sql.DB, itemID int64) int {
 // what the test needs to check.
 func inTx(t *testing.T, db *sql.DB, fn func(*sql.Tx) error) error {
 	t.Helper()
-	tx, err := db.Begin()
+	tx, err := db.BeginTx(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("begin: %v", err)
 	}

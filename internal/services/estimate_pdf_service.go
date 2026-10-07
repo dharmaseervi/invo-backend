@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -12,12 +13,13 @@ import (
 // already render, from an estimate instead. Estimates don't snapshot a billing/shipping
 // address the way invoices do (a quotation isn't a legal tax document), so this falls
 // back to the client's saved billing address, then the plain client record.
-func FetchEstimatePDFData(db *sql.DB, estimateID int) (pdf.InvoicePDFData, error) {
+func FetchEstimatePDFData(ctx context.Context, db *sql.DB, estimateID int) (pdf.InvoicePDFData, error) {
 	var data pdf.InvoicePDFData
 	data.Invoice.DocType = "QUOTATION"
 
 	var clientID int
-	err := db.QueryRow(`
+	err := db.QueryRowContext(ctx,
+		`
 		SELECT
 			e.estimate_number,
 			TO_CHAR(e.estimate_date, 'DD Mon YYYY'),
@@ -47,7 +49,8 @@ func FetchEstimatePDFData(db *sql.DB, estimateID int) (pdf.InvoicePDFData, error
 	}
 	data.Invoice.AmountDue = data.Invoice.Total
 
-	err = db.QueryRow(`
+	err = db.QueryRowContext(ctx,
+		`
 		SELECT
 			COALESCE(c.name, ''),
 			COALESCE(c.address, ''),
@@ -69,7 +72,8 @@ func FetchEstimatePDFData(db *sql.DB, estimateID int) (pdf.InvoicePDFData, error
 	}
 
 	// Client billing address: saved address first, plain client record as fallback.
-	err = db.QueryRow(`
+	err = db.QueryRowContext(ctx,
+		`
 		SELECT COALESCE(name, ''), COALESCE(line1, ''), COALESCE(city, ''), COALESCE(state, ''), COALESCE(country, '')
 		FROM client_addresses
 		WHERE client_id = $1 AND type = 'billing'
@@ -79,7 +83,8 @@ func FetchEstimatePDFData(db *sql.DB, estimateID int) (pdf.InvoicePDFData, error
 		&data.ClientBilling.City, &data.ClientBilling.State, &data.ClientBilling.Country,
 	)
 	if err == sql.ErrNoRows {
-		err = db.QueryRow(`
+		err = db.QueryRowContext(ctx,
+			`
 			SELECT COALESCE(name, ''), COALESCE(address, ''), COALESCE(city, ''), COALESCE(state, ''), 'India'
 			FROM clients WHERE id = $1
 		`, clientID).Scan(
@@ -91,7 +96,8 @@ func FetchEstimatePDFData(db *sql.DB, estimateID int) (pdf.InvoicePDFData, error
 		return data, fmt.Errorf("fetch client address: %w", err)
 	}
 
-	itemRows, err := db.Query(`
+	itemRows, err := db.QueryContext(ctx,
+		`
 		SELECT it.name, COALESCE(it.hsn_code, ''), ei.qty, ei.rate,
 		       COALESCE(ei.tax_rate, 0), ei.total
 		FROM estimate_items ei
@@ -143,7 +149,8 @@ func FetchEstimatePDFData(db *sql.DB, estimateID int) (pdf.InvoicePDFData, error
 	data.Invoice.IsInterstate = companyState != "" && billingState != "" &&
 		!strings.EqualFold(companyState, billingState)
 
-	err = db.QueryRow(`
+	err = db.QueryRowContext(ctx,
+		`
 		SELECT bank_name, account_number, ifsc_code, COALESCE(branch, '')
 		FROM company_bank_accounts
 		WHERE company_id = (SELECT company_id FROM estimates WHERE id = $1)

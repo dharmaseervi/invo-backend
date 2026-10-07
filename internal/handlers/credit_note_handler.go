@@ -32,7 +32,7 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 	}
 
 	// 5️⃣ Begin transaction
-	tx, err := h.db.Begin()
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 		return
@@ -46,7 +46,8 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 	}()
 
 	var exists bool
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		SELECT EXISTS (SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
             SELECT 1 FROM company_members WHERE company_id = $1 AND user_id = $2)
@@ -57,7 +58,8 @@ func (h *CreditNoteHandler) Create(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.CreateTx(tx, req.CompanyID, req); err != nil {
+	if err := h.service.CreateTx(c.Request.Context(),
+		tx, req.CompanyID, req); err != nil {
 		var input services.CreditNoteInputError
 		if errors.As(err, &input) {
 			c.JSON(400, gin.H{"error": input.Msg})
@@ -99,7 +101,8 @@ func (h *CreditNoteHandler) GetAll(c *gin.Context) {
 
 	// Verify ownership
 	var exists bool
-	h.db.QueryRow(`
+	h.db.QueryRowContext(c.Request.Context(),
+		`
         SELECT EXISTS(
             SELECT 1 FROM companies WHERE id = $1 AND user_id = $2
             UNION ALL
@@ -112,7 +115,7 @@ func (h *CreditNoteHandler) GetAll(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.GetAll(
+	result, err := h.service.GetAll(c.Request.Context(),
 		companyID,
 		strings.TrimSpace(c.Query("search")),
 		strings.ToLower(strings.TrimSpace(c.Query("type"))),
@@ -137,7 +140,7 @@ func (h *CreditNoteHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	tx, err := h.db.Begin()
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "failed to start transaction"})
 		return
@@ -145,7 +148,8 @@ func (h *CreditNoteHandler) GetByID(c *gin.Context) {
 	defer tx.Rollback()
 
 	var companyID int64
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		SELECT cn.company_id
 		FROM credit_notes cn
 		JOIN companies c ON c.id = cn.company_id
@@ -156,7 +160,8 @@ func (h *CreditNoteHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	result, err := h.service.GetByID(tx, companyID, cnID)
+	result, err := h.service.GetByID(c.Request.Context(),
+		tx, companyID, cnID)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "credit note not found"})
 		return
@@ -181,7 +186,8 @@ func (h *CreditNoteHandler) GetSummary(c *gin.Context) {
 		return
 	}
 
-	owned, err := companyBelongsToUser(h.db, companyID, userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -191,7 +197,8 @@ func (h *CreditNoteHandler) GetSummary(c *gin.Context) {
 		return
 	}
 
-	summary, err := h.service.Summary(companyID, strings.TrimSpace(c.Query("search")))
+	summary, err := h.service.Summary(c.Request.Context(),
+		companyID, strings.TrimSpace(c.Query("search")))
 	if err != nil {
 		log.Println("failed to fetch credit note summary:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch summary"})
@@ -213,7 +220,8 @@ func (h *CreditNoteHandler) ApplyToInvoice(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
 		return
 	}
-	owned, err := companyBelongsToUser(h.db, companyID, c.GetInt("user_id"))
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, c.GetInt("user_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -242,7 +250,8 @@ func (h *CreditNoteHandler) ApplyToInvoice(c *gin.Context) {
 		return
 	}
 
-	applied, err := h.service.ApplyToInvoice(companyID, creditNoteID, req.InvoiceID, req.Amount)
+	applied, err := h.service.ApplyToInvoice(c.Request.Context(),
+		companyID, creditNoteID, req.InvoiceID, req.Amount)
 	if err != nil {
 		var input services.CreditNoteInputError
 		if errors.As(err, &input) {

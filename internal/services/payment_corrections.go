@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 
@@ -18,11 +19,11 @@ import (
 
 // ReversePayment undoes a payment: the invoices it settled go back to owing, the
 // customer's balance goes back up, and the payment is marked reversed with the reason.
-func (s *PaymentService) ReversePayment(
+func (s *PaymentService) ReversePayment(ctx context.Context,
 	companyID, paymentID int64,
 	reason string,
 ) error {
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -33,7 +34,8 @@ func (s *PaymentService) ReversePayment(
 	var clientID int64
 	var amount float64
 	var status string
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx,
+		`
 		SELECT client_id, amount, status
 		FROM payments
 		WHERE id = $1 AND company_id = $2
@@ -50,11 +52,13 @@ func (s *PaymentService) ReversePayment(
 		return PaymentInputError{"That payment has already been reversed."}
 	}
 
-	if err := unapplyAllocations(tx, paymentID); err != nil {
+	if err := unapplyAllocations(ctx,
+		tx, paymentID); err != nil {
 		return err
 	}
 
-	if _, err := tx.Exec(`
+	if _, err := tx.ExecContext(ctx,
+		`
 		UPDATE payments
 		SET status = 'reversed', reversed_at = NOW(), reversal_reason = $2, unapplied_amount = 0
 		WHERE id = $1
@@ -68,7 +72,7 @@ func (s *PaymentService) ReversePayment(
 	if r := strings.TrimSpace(reason); r != "" {
 		narration += " — " + r
 	}
-	if err := s.ledger.AddEntryTx(
+	if err := s.ledger.AddEntryTx(ctx,
 		tx, companyID, clientID, "PAYMENT_REVERSAL", paymentID, amount, 0, narration,
 	); err != nil {
 		return err
@@ -82,11 +86,11 @@ func (s *PaymentService) ReversePayment(
 //
 // The payment itself is untouched — same amount, same date, same receipt number. Only
 // what it settles changes, which is what actually went wrong.
-func (s *PaymentService) ReallocatePayment(
+func (s *PaymentService) ReallocatePayment(ctx context.Context,
 	companyID, paymentID int64,
 	allocations []models.PaymentAllocationDTO,
 ) error {
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -95,7 +99,8 @@ func (s *PaymentService) ReallocatePayment(
 	var clientID int64
 	var amount float64
 	var status string
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(ctx,
+		`
 		SELECT client_id, amount, status
 		FROM payments
 		WHERE id = $1 AND company_id = $2
@@ -126,14 +131,16 @@ func (s *PaymentService) ReallocatePayment(
 	// Take it all back first, then apply afresh. Working out the difference per invoice
 	// would be the same thing with more ways to be wrong, and this runs in one
 	// transaction so the books are never between the two states.
-	if err := unapplyAllocations(tx, paymentID); err != nil {
+	if err := unapplyAllocations(ctx,
+		tx, paymentID); err != nil {
 		return err
 	}
 
 	for _, a := range allocations {
 		var remaining float64
 		var invoiceStatus string
-		err := tx.QueryRow(`
+		err := tx.QueryRowContext(ctx,
+			`
 			SELECT remaining_amount, status
 			FROM invoices
 			WHERE id = $1 AND company_id = $2 AND client_id = $3
@@ -155,14 +162,16 @@ func (s *PaymentService) ReallocatePayment(
 			return PaymentInputError{"That's more than the invoice still owes."}
 		}
 
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx,
+			`
 			INSERT INTO payment_allocations (payment_id, invoice_id, amount)
 			VALUES ($1,$2,$3)
 		`, paymentID, a.InvoiceID, a.Amount); err != nil {
 			return err
 		}
 
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx,
+			`
 			UPDATE invoices
 			SET paid_amount = paid_amount + $1,
 			    remaining_amount = remaining_amount - $1,
@@ -175,7 +184,7 @@ func (s *PaymentService) ReallocatePayment(
 	}
 
 	unapplied := money.FromFloat(amount).Sub(total).Round()
-	if _, err := tx.Exec(
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE payments SET unapplied_amount = $2, updated_at = NOW() WHERE id = $1`,
 		paymentID, unapplied.Float64(),
 	); err != nil {
@@ -194,8 +203,8 @@ func (s *PaymentService) ReallocatePayment(
 // The status is recomputed from what is left owing rather than set to a fixed value: an
 // invoice that was paid by two payments is still partial after one is taken off, and
 // one that had nothing else against it goes back to issued.
-func unapplyAllocations(tx *sql.Tx, paymentID int64) error {
-	rows, err := tx.Query(
+func unapplyAllocations(ctx context.Context, tx *sql.Tx, paymentID int64) error {
+	rows, err := tx.QueryContext(ctx,
 		`SELECT invoice_id, amount FROM payment_allocations WHERE payment_id = $1`, paymentID)
 	if err != nil {
 		return err
@@ -219,7 +228,8 @@ func unapplyAllocations(tx *sql.Tx, paymentID int64) error {
 	}
 
 	for _, a := range list {
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx,
+			`
 			UPDATE invoices
 			SET paid_amount = GREATEST(paid_amount - $1, 0),
 			    remaining_amount = remaining_amount + $1,
@@ -234,7 +244,8 @@ func unapplyAllocations(tx *sql.Tx, paymentID int64) error {
 		}
 	}
 
-	_, err = tx.Exec(`DELETE FROM payment_allocations WHERE payment_id = $1`, paymentID)
+	_, err = tx.ExecContext(ctx,
+		`DELETE FROM payment_allocations WHERE payment_id = $1`, paymentID)
 	return err
 }
 
@@ -255,7 +266,7 @@ type RefundRequest struct {
 // A credit note on its own does not move any money — it says the customer is owed
 // something. This is the part where they actually get it, which is why it is a separate
 // record rather than a flag on the credit note.
-func (s *PaymentService) RecordRefund(
+func (s *PaymentService) RecordRefund(ctx context.Context,
 	companyID int64,
 	req RefundRequest,
 ) (int64, error) {
@@ -266,14 +277,14 @@ func (s *PaymentService) RecordRefund(
 		return 0, PaymentInputError{"Say how the money was returned — cash, UPI, bank transfer."}
 	}
 
-	tx, err := s.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
 
 	var clientOK bool
-	if err := tx.QueryRow(
+	if err := tx.QueryRowContext(ctx,
 		`SELECT EXISTS(SELECT 1 FROM clients WHERE id = $1 AND company_id = $2)`,
 		req.ClientID, companyID,
 	).Scan(&clientOK); err != nil {
@@ -288,7 +299,8 @@ func (s *PaymentService) RecordRefund(
 		// credit note cannot both pass.
 		var balance float64
 		var status string
-		err := tx.QueryRow(`
+		err := tx.QueryRowContext(ctx,
+			`
 			SELECT balance, status FROM credit_notes
 			WHERE id = $1 AND company_id = $2 AND client_id = $3
 			FOR UPDATE
@@ -309,7 +321,8 @@ func (s *PaymentService) RecordRefund(
 			}
 		}
 
-		if _, err := tx.Exec(`
+		if _, err := tx.ExecContext(ctx,
+			`
 			UPDATE credit_notes
 			SET balance = balance - $2,
 			    status = CASE WHEN balance - $2 <= 0 THEN 'settled' ELSE status END
@@ -320,7 +333,8 @@ func (s *PaymentService) RecordRefund(
 	}
 
 	var refundID int64
-	if err := tx.QueryRow(`
+	if err := tx.QueryRowContext(ctx,
+		`
 		INSERT INTO refunds
 			(company_id, client_id, credit_note_id, amount, method, reference, notes, refund_date)
 		VALUES ($1,$2,$3,$4,$5,$6,$7, COALESCE($8::date, CURRENT_DATE))
@@ -338,7 +352,7 @@ func (s *PaymentService) RecordRefund(
 	if r := strings.TrimSpace(req.Reference); r != "" {
 		narration += " — " + r
 	}
-	if err := s.ledger.AddEntryTx(
+	if err := s.ledger.AddEntryTx(ctx,
 		tx, companyID, req.ClientID, "REFUND", refundID, req.Amount, 0, narration,
 	); err != nil {
 		return 0, err

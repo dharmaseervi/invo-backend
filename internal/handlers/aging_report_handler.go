@@ -27,7 +27,8 @@ func (h *AgingReportHandler) GetAgingReport(c *gin.Context) {
 	}
 
 	userID := c.GetInt("user_id")
-	owned, err := companyBelongsToUser(h.db, companyID, userID)
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return
@@ -37,7 +38,8 @@ func (h *AgingReportHandler) GetAgingReport(c *gin.Context) {
 		return
 	}
 
-	report, err := services.GenerateAgingReport(h.db, companyID)
+	report, err := services.GenerateAgingReport(c.Request.Context(),
+		h.db, companyID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate report"})
 		return

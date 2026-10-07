@@ -47,7 +47,8 @@ func (h *InvoiceHandler) GetInvoiceSummary(c *gin.Context) {
 
 	if v := c.Query("company_id"); v != "" {
 		if companyID, err := strconv.Atoi(v); err == nil {
-			owned, err := companyBelongsToUser(h.db.DB, int64(companyID), userID)
+			owned, err := companyBelongsToUser(c.Request.Context(),
+				h.db.DB, int64(companyID), userID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 				return
@@ -95,7 +96,8 @@ func (h *InvoiceHandler) GetInvoiceSummary(c *gin.Context) {
 		Invoiced float64 `json:"invoiced"`
 	}
 
-	err := h.db.DB.QueryRow(`
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
 		SELECT
 			COUNT(*),
 			COUNT(*) FILTER (WHERE i.status = 'draft'),

@@ -47,7 +47,8 @@ func (h *StaffHandler) GetStaff(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(`
+	rows, err := h.db.QueryContext(c.Request.Context(),
+		`
 		SELECT m.id, m.user_id, u.email, m.name, m.role, TO_CHAR(m.created_at, 'YYYY-MM-DD')
 		FROM company_members m
 		JOIN users u ON u.id = m.user_id
@@ -126,7 +127,7 @@ func (h *StaffHandler) AddStaff(c *gin.Context) {
 		return
 	}
 
-	tx, err := h.db.Begin()
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add them"})
 		return
@@ -134,7 +135,8 @@ func (h *StaffHandler) AddStaff(c *gin.Context) {
 	defer tx.Rollback()
 
 	var userID int64
-	err = tx.QueryRow(`SELECT id FROM users WHERE lower(email) = $1`, req.Email).Scan(&userID)
+	err = tx.QueryRowContext(c.Request.Context(),
+		`SELECT id FROM users WHERE lower(email) = $1`, req.Email).Scan(&userID)
 
 	switch {
 	case err == sql.ErrNoRows:
@@ -153,7 +155,8 @@ func (h *StaffHandler) AddStaff(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add them"})
 			return
 		}
-		if err := tx.QueryRow(`
+		if err := tx.QueryRowContext(c.Request.Context(),
+			`
 			INSERT INTO users (email, password_hash, is_verified)
 			VALUES ($1, $2, TRUE)
 			RETURNING id
@@ -177,7 +180,8 @@ func (h *StaffHandler) AddStaff(c *gin.Context) {
 	}
 
 	var memberID int64
-	err = tx.QueryRow(`
+	err = tx.QueryRowContext(c.Request.Context(),
+		`
 		INSERT INTO company_members (company_id, user_id, role, name, added_by)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (company_id, user_id) DO NOTHING
@@ -236,7 +240,8 @@ func (h *StaffHandler) UpdateStaff(c *gin.Context) {
 
 	// Scoped to this company and never the owner's row: the owner cannot be demoted,
 	// which would otherwise leave a business nobody can administer.
-	result, err := h.db.Exec(`
+	result, err := h.db.ExecContext(c.Request.Context(),
+		`
 		UPDATE company_members
 		SET role = $1,
 		    name = COALESCE(NULLIF($2, ''), name),
@@ -276,7 +281,8 @@ func (h *StaffHandler) RemoveStaff(c *gin.Context) {
 		return
 	}
 
-	result, err := h.db.Exec(`
+	result, err := h.db.ExecContext(c.Request.Context(),
+		`
 		DELETE FROM company_members
 		WHERE id = $1 AND company_id = $2 AND role <> 'owner'
 	`, memberID, companyID)

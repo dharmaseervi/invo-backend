@@ -501,84 +501,101 @@ func settleSupplierBills(
 	return amount, nil
 }
 
-// CancelBill voids a purchase bill.
-//
-// It marks the bill cancelled, reverses the stock that arrived with it (if the bill had
-// line items rather than being amount-only), and detaches any payments that were applied
-// against it — those payments stay on the books as a supplier advance.
-//
-// A bill that is already cancelled is refused: cancelling twice makes no sense and the
-// second call would have nothing to reverse.
-func (s *PurchaseService) CancelBill(ctx context.Context, companyID, billID int64) error {
+// CancelBill voids a bill and reverses its stock in one transaction. Payments remain
+// real money paid: freed credit settles other open bills, then remains as an advance.
+func (s *PurchaseService) CancelBill(ctx context.Context, companyID, billID, userID int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	var status string
-	var isAmountOnly bool
-	err = tx.QueryRowContext(ctx, `
-		SELECT status, is_amount_only
-		FROM purchase_bills
-		WHERE id = $1 AND company_id = $2
-		FOR UPDATE
-	`, billID, companyID).Scan(&status, &isAmountOnly)
+	// All supplier writes lock supplier before bill, including payments and returns.
+	var supplierID int64
+	err = tx.QueryRowContext(ctx, `SELECT supplier_id FROM purchase_bills WHERE id=$1 AND company_id=$2`, billID, companyID).Scan(&supplierID)
 	if err == sql.ErrNoRows {
 		return PurchaseInputError{"That bill isn't one of this company's."}
 	}
 	if err != nil {
 		return err
 	}
+	var lockedID int64
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM suppliers WHERE id=$1 AND company_id=$2 FOR UPDATE`, supplierID, companyID).Scan(&lockedID); err != nil {
+		return err
+	}
+	var status, reference string
+	if err = tx.QueryRowContext(ctx, `SELECT status, bill_number FROM purchase_bills WHERE id=$1 AND company_id=$2 FOR UPDATE`, billID, companyID).Scan(&status, &reference); err != nil {
+		return err
+	}
 	if status == "cancelled" {
 		return PurchaseInputError{"That bill is already cancelled."}
 	}
-
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE purchase_bills
-		SET status = 'cancelled', updated_at = NOW()
-		WHERE id = $1
-	`, billID); err != nil {
+	var hasReturns bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM purchase_returns WHERE bill_id=$1)`, billID).Scan(&hasReturns); err != nil {
 		return err
 	}
+	if hasReturns {
+		return PurchaseInputError{"This bill has recorded returns and cannot be cancelled. Its stock and credit have already been adjusted."}
+	}
 
-	// Reverse stock for each line item that arrived with the bill.
-	if !isAmountOnly {
-		rows, err := tx.QueryContext(ctx, `
-			SELECT item_id, qty FROM purchase_bill_items WHERE bill_id = $1
-		`, billID)
+	// Read and close the result before issuing writes on the transaction connection.
+	rows, err := tx.QueryContext(ctx, `SELECT item_id, SUM(qty) FROM purchase_bill_items WHERE bill_id=$1 GROUP BY item_id ORDER BY item_id`, billID)
+	if err != nil {
+		return err
+	}
+	type stockLine struct {
+		itemID int64
+		qty    int
+	}
+	var lines []stockLine
+	for rows.Next() {
+		var line stockLine
+		if err = rows.Scan(&line.itemID, &line.qty); err != nil {
+			rows.Close()
+			return err
+		}
+		lines = append(lines, line)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	for _, line := range lines {
+		var previous, updated int
+		err = tx.QueryRowContext(ctx, `UPDATE items SET quantity=quantity-$1, updated_at=NOW()
+   WHERE id=$2 AND company_id=$3 AND quantity >= $1 RETURNING quantity+$1, quantity`, line.qty, line.itemID, companyID).Scan(&previous, &updated)
+		if err == sql.ErrNoRows {
+			return PurchaseInputError{"There isn't enough stock to reverse this bill. Check sales, returns and stock adjustments first."}
+		}
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var itemID int64
-			var qty int
-			if err := rows.Scan(&itemID, &qty); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `
-				UPDATE items
-				SET stock_quantity = GREATEST(0, stock_quantity - $1),
-				    updated_at = NOW()
-				WHERE id = $2
-			`, qty, itemID); err != nil {
-				return err
-			}
-		}
-		if err := rows.Err(); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO stock_movements
+   (item_id, company_id, user_id, movement_type, quantity_change, previous_quantity, new_quantity, reference, note)
+   VALUES ($1,$2,$3,'adjustment',$4,$5,$6,$7,'Purchase bill cancelled')`,
+			line.itemID, companyID, userID, -line.qty, previous, updated, reference); err != nil {
 			return err
 		}
 	}
-
-	// Payments that were applied to this bill are detached — they become a free
-	// advance the shop is holding with this supplier. The money is not refunded; the
-	// obligation the payment was settling no longer exists.
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE supplier_payments SET bill_id = NULL WHERE bill_id = $1
-	`, billID); err != nil {
+	if _, err = tx.ExecContext(ctx, `UPDATE purchase_bills SET status='cancelled', paid_amount=0, remaining_amount=0, updated_at=NOW() WHERE id=$1`, billID); err != nil {
 		return err
 	}
-
+	if _, err = tx.ExecContext(ctx, `UPDATE supplier_payments SET bill_id=NULL WHERE bill_id=$1 AND company_id=$2`, billID, companyID); err != nil {
+		return err
+	}
+	credit, err := supplierCredit(ctx, tx, companyID, supplierID)
+	if err != nil {
+		return err
+	}
+	if credit.GreaterThan(money.Zero()) {
+		dues, err := openSupplierBills(ctx, tx, companyID, supplierID, nil, nil)
+		if err != nil {
+			return err
+		}
+		if _, err = settleSupplierBills(ctx, tx, dues, credit); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }

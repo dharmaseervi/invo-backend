@@ -42,7 +42,8 @@ func (h *EmailHandler) SendInvoiceEmail(c *gin.Context) {
 	}
 
 	userID := c.GetInt("user_id")
-	owned, err := invoiceBelongsToUser(h.db, invoiceID, userID)
+	owned, err := invoiceBelongsToUser(c.Request.Context(),
+		h.db, invoiceID, userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify invoice"})
 		return
@@ -52,7 +53,8 @@ func (h *EmailHandler) SendInvoiceEmail(c *gin.Context) {
 		return
 	}
 
-	data, err := services.FetchInvoicePDFData(h.db, invoiceID)
+	data, err := services.FetchInvoicePDFData(c.Request.Context(),
+		h.db, invoiceID)
 	if err != nil {
 		log.Println("FETCH INVOICE ERROR:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch invoice"})
