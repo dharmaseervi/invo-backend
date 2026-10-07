@@ -57,6 +57,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		cfg.Email.FromName,
 	)
 	authHandler := handlers.NewAuthHandler(db, []byte(cfg.JWT.Secret), emailService)
+	sessionHandler := handlers.NewSessionHandler(db, []byte(cfg.JWT.Secret), 7*24*time.Hour)
 	emailHandler := handlers.NewEmailHandler(emailService, db.DB)
 	// Add OTP handler
 	otpHandler := handlers.NewOTPHandler(db, emailService, []byte(cfg.JWT.Secret))
@@ -83,6 +84,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		credentials.POST("/login", authHandler.Login)
 		credentials.POST("/forgot-password", middleware.EmailQuota(8, 4, 40, 15), authHandler.ForgotPassword)
 		credentials.POST("/reset-password", authHandler.ResetPassword)
+		// Token refresh uses the refresh token (not a JWT), so it lives outside protected.
+		credentials.POST("/auth/token/refresh", sessionHandler.RefreshTokens)
 	}
 
 	// Protected routes
@@ -108,6 +111,10 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	{
 		protected.POST("/refresh-token", authHandler.RefreshToken)
 		protected.POST("/logout", authHandler.Logout)
+		// Device session management.
+		protected.GET("/auth/sessions", sessionHandler.ListSessions)
+		protected.DELETE("/auth/sessions", sessionHandler.RevokeAllOtherSessions)
+		protected.DELETE("/auth/sessions/:id", sessionHandler.RevokeSession)
 		protected.GET("/profile", userHandler.GetUserProfile)
 
 		// Push notification device tokens

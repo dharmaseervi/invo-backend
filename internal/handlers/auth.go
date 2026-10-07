@@ -28,7 +28,7 @@ func NewAuthHandler(db *database.Database, jwtSecret []byte, emailService *servi
 		db:              db,
 		jwtSecret:       jwtSecret,
 		emailService:    emailService,
-		tokenExpiration: 24 * time.Hour, // Default 24 hour expiration
+		tokenExpiration: 7 * 24 * time.Hour,
 	}
 }
 
@@ -136,12 +136,23 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 // Login handles user authentication and JWT generation
 func (h *AuthHandler) Login(c *gin.Context) {
-	var login models.UserLogin
+	var login struct {
+		Email      string `json:"email" binding:"required"`
+		Password   string `json:"password" binding:"required"`
+		DeviceName string `json:"device_name"`
+		Platform   string `json:"platform"`
+	}
 	if err := c.ShouldBindJSON(&login); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid login data"})
 		return
 	}
 	login.Email = normalizeEmail(login.Email)
+	if login.DeviceName == "" {
+		login.DeviceName = "Unknown device"
+	}
+	if login.Platform == "" {
+		login.Platform = "ios"
+	}
 
 	// Step 1 — Get user from database FIRST
 	var user models.User
@@ -203,13 +214,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// The website reads its session from here rather than from the body: a cookie the
-	// browser will not hand to JavaScript cannot be read by an injected script, which
-	// is what localStorage could not promise. The phone apps keep using the token in
-	// the body, which the middleware still checks first.
+	// Create a device session and issue a refresh token.
+	sessionID, refreshToken, sessErr := createSession(c, h.db.DB, user.ID, login.DeviceName, login.Platform)
+
 	setSessionCookie(c, tokenString, h.tokenExpiration)
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"user": gin.H{
 			"id":    user.ID,
 			"email": user.Email,
@@ -217,7 +227,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"token":      tokenString,
 		"expires_in": h.tokenExpiration.Seconds(),
 		"token_type": "Bearer",
-	})
+	}
+	if sessErr == nil {
+		resp["refresh_token"] = refreshToken
+		resp["session_id"] = sessionID
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // POST /api/v1/verify-email
@@ -280,7 +296,7 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	// Verifying an address signs the person in, so the browser needs the cookie for it.
 	setSessionCookie(c, tokenString, h.tokenExpiration)
 
-	c.JSON(http.StatusOK, gin.H{
+	verifResp := gin.H{
 		"message": "Email verified successfully!",
 		"user": gin.H{
 			"id":    userID,
@@ -289,7 +305,13 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		"token":      tokenString,
 		"expires_in": h.tokenExpiration.Seconds(),
 		"token_type": "Bearer",
-	})
+	}
+	if sid, rt, err2 := createSession(c, h.db.DB, userID, "Unknown device", "ios"); err2 == nil {
+		verifResp["refresh_token"] = rt
+		verifResp["session_id"] = sid
+	}
+
+	c.JSON(http.StatusOK, verifResp)
 }
 
 // POST /api/v1/resend-verification
