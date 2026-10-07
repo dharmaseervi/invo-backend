@@ -168,6 +168,14 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
+	// A browser signing in with a code gets the same httpOnly session a password login
+	// gets. Only the password handler set this, so the website could complete the OTP
+	// exchange, receive a token it deliberately throws away, and end up with no session
+	// at all — signed in as far as the server was concerned, signed out as far as the
+	// browser was. The phone apps carry the token in the Authorization header and are
+	// unaffected: the server prefers that header to the cookie.
+	setSessionCookie(c, tokenString, 24*time.Hour)
+
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
 			"id":    userID,

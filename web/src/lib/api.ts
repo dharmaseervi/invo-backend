@@ -38,29 +38,49 @@ export class ApiError extends Error {
   }
 }
 
+/// True when this build talks to an API on another origin, which only happens under
+/// `next dev`. NEXT_PUBLIC_API_ORIGIN is empty in the production build.
+const CROSS_ORIGIN_DEV = (process.env.NEXT_PUBLIC_API_ORIGIN ?? "") !== "";
+
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.localStorage.getItem(TOKEN_KEY);
+    const stored = window.localStorage.getItem(TOKEN_KEY);
+
+    // In production there is no token to have: the session is the httpOnly cookie.
+    // Anything still in storage is a leftover from before that migration, and it is
+    // actively harmful — the server prefers an Authorization header to the cookie, so
+    // a stale token kept a freshly signed-in user collecting 401s from their own
+    // browser, and while it sat there it stayed readable to any script on the page.
+    // Reading is where it gets cleaned up, because that is the one place every caller
+    // already goes through.
+    if (!CROSS_ORIGIN_DEV) {
+      if (stored !== null) window.localStorage.removeItem(TOKEN_KEY);
+      return null;
+    }
+    return stored;
   } catch {
     // Private browsing and blocked site data both throw rather than return null.
     return null;
   }
 }
 
-/// True when this build talks to an API on another origin, which only happens under
-/// `next dev`. NEXT_PUBLIC_API_ORIGIN is empty in the production build.
-const CROSS_ORIGIN_DEV = (process.env.NEXT_PUBLIC_API_ORIGIN ?? "") !== "";
-
 export function setToken(token: string | null) {
-  // In production the session is the httpOnly cookie and there is nothing to keep.
-  // Writing the token here anyway would hand back exactly the thing the cookie exists
-  // to keep out of reach.
-  if (!CROSS_ORIGIN_DEV) return;
-
   try {
-    if (token) window.localStorage.setItem(TOKEN_KEY, token);
-    else window.localStorage.removeItem(TOKEN_KEY);
+    // Clearing always happens, in every build. The early return that skipped it in
+    // production was meant to avoid *writing* a token, but it skipped erasing one
+    // too, so signing out left the old token in place for the next person at that
+    // browser.
+    if (!token) {
+      window.localStorage.removeItem(TOKEN_KEY);
+      return;
+    }
+
+    // Storing it is what production must not do. Writing the token here would hand
+    // back exactly the thing the cookie exists to keep out of reach.
+    if (!CROSS_ORIGIN_DEV) return;
+
+    window.localStorage.setItem(TOKEN_KEY, token);
   } catch {
     /* storage unavailable — the session simply will not survive a reload */
   }

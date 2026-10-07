@@ -166,6 +166,13 @@ var routePermissions = map[string]Permission{
 	"GET /api/v1/companies/:companyId/ledger/summary":   PermSeeReports,
 	"GET /api/v1/companies/:companyId/expenses":         PermSeeReports,
 	"GET /api/v1/companies/:companyId/expenses/summary": PermSeeReports,
+	// The list was governed and the single expense was not, so the counter who was
+	// refused the expense list could still read any one expense by id and change its
+	// amount. Recording one was open too. What the shop spends is one subject, and
+	// every route that touches it needs the same answer.
+	"POST /api/v1/expenses":    PermSeeReports,
+	"GET /api/v1/expenses/:id": PermSeeReports,
+	"PUT /api/v1/expenses/:id": PermSeeReports,
 	"GET /api/v1/invoices/summary":                      PermSeeReports,
 	"GET /api/v1/companies/:companyId/payments":         PermSeeReports,
 	"GET /api/v1/dashboard":                             PermSeeReports,
@@ -293,15 +300,39 @@ var recordCompany = map[string]struct {
 	"/api/v1/suppliers/:id/ledger/summary":   {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
 }
 
-// companyForRequest works out which business a request concerns.
+// companyForRequest works out which business a request concerns, and refuses to answer
+// when the request names more than one.
 //
-// The record the route names comes first, and the company_id in the request only
-// answers for routes that name no record. Taking the query string first would let a
-// request act on one shop's invoice while being judged against another: pass the id of
-// an invoice belonging to somebody else and company_id of a shop you own, and the
-// permission check would ask the wrong question. The handler's own ownership check
-// would still refuse it, but a check that can be aimed elsewhere is not a check.
+// Taking the first identifier found was the hole. A request could say one company in
+// the query string and another in its body: the check asked about the one you are an
+// owner of, the handler then acted on the one you are only staff in, and a role that
+// had been denied the catalogue could edit it. The id of a record belonging to somebody
+// else plus the company_id of a shop you own aimed the same trick at a different
+// target. A check that can be pointed somewhere other than the thing being done is not
+// a check.
+//
+// So every identifier the request offers is collected and they must agree. Disagreement
+// is refused rather than resolved in anyone's favour: there is no legitimate request
+// that means two companies at once, and picking a winner is how the hole reopens.
 func companyForRequest(c *gin.Context, db *sql.DB) (int64, bool) {
+	var (
+		resolved int64
+		found    bool
+	)
+
+	// agree records one candidate. The first one sets the answer; every later one has
+	// to match it.
+	agree := func(id int64) bool {
+		if !found {
+			resolved, found = id, true
+			return true
+		}
+		return id == resolved
+	}
+
+	// The record the route names, where there is one. This is the thing actually being
+	// acted on, so it is the identifier that matters most — but it still only has to
+	// agree with the others rather than silently overriding them.
 	if lookup, ok := recordCompany[c.FullPath()]; ok {
 		id, err := strconv.ParseInt(c.Param(lookup.param), 10, 64)
 		if err != nil {
@@ -313,7 +344,9 @@ func companyForRequest(c *gin.Context, db *sql.DB) (int64, bool) {
 			// is refused rather than waved through.
 			return 0, false
 		}
-		return companyID, true
+		if !agree(companyID) {
+			return 0, false
+		}
 	}
 
 	// Both spellings of both shapes. The API says company_id in most places and
@@ -329,38 +362,54 @@ func companyForRequest(c *gin.Context, db *sql.DB) (int64, bool) {
 		if v == "" {
 			continue
 		}
-		if id, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return id, true
+		id, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			// An unreadable company id is not the same as none given. Ignoring it would
+			// let "company_id=1&company_id=oops" through on whichever one parsed.
+			return 0, false
+		}
+		if !agree(id) {
+			return 0, false
 		}
 	}
 
-	// Last, the JSON body. The catalogue import puts the company there and nowhere
-	// else, so without this it resolved to nothing and every import was refused —
-	// which is how a working feature broke the day this middleware was added. Failing
-	// closed is right, but only when "closed" is not also closed to the people who
-	// should be let through.
-	return companyFromBody(c)
+	// And the JSON body. The catalogue import puts the company there and nowhere else,
+	// so without this it resolved to nothing and every import was refused — which is
+	// how a working feature broke the day this middleware was added. Failing closed is
+	// right, but only when "closed" is not also closed to the people who should be let
+	// through.
+	if id, ok := companyFromBody(c); ok {
+		if !agree(id) {
+			return 0, false
+		}
+	}
+
+	return resolved, found
 }
 
-// maxBodyPeek bounds how much of a body is read looking for a company id. A catalogue
-// import is megabytes of rows and the id is in the first few bytes of the object.
-const maxBodyPeek = 1 << 20
-
-// companyFromBody peeks at the JSON body for a company id and puts the body back, so
+// companyFromBody reads the JSON body looking for a company id and puts it back, so
 // the handler still reads it whole.
+//
+// It reads all of it, not a prefix. Reading only the first megabyte meant a bigger
+// catalogue import arrived as truncated JSON, which would not unmarshal, so the company
+// resolved to nothing and the import was refused with "Unauthorized company access" —
+// an authorisation error for a file that was simply large. The body is already bounded
+// before this runs: the request is wrapped in a MaxBytesReader in main, so there is no
+// limit to impose here beyond the one that is imposed anyway, and taking the whole
+// thing is what makes the parse trustworthy.
 func companyFromBody(c *gin.Context) (int64, bool) {
 	if c.Request.Body == nil {
 		return 0, false
 	}
 
-	body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBodyPeek))
+	body, err := io.ReadAll(c.Request.Body)
+	// Whatever happens next — including a read that failed part-way, or a body over the
+	// limit — the handler gets back what was read, so it reports the real problem
+	// instead of seeing an empty body.
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
 	if err != nil {
 		return 0, false
 	}
-	// Whatever happens next, the handler gets the body it would have had. A body
-	// longer than the peek limit is put back whole by chaining what was read in front
-	// of the rest, so a large import is not quietly truncated on its way through.
-	c.Request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), c.Request.Body))
 
 	var probe struct {
 		SnakeCase *json.Number `json:"company_id"`

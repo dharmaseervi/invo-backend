@@ -60,23 +60,34 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 		return
 	}
 
-	// Ensure category belongs to this user
-	var categoryExists bool
-	err := h.db.DB.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM categories
-			WHERE id=$1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
-		)
-	`, request.CategoryID, userID).Scan(&categoryExists)
+	// A category is optional — `CategoryID` is a pointer precisely because an item need
+	// not have one, and the phone's form lets you save without picking one. Checking it
+	// unconditionally made EXISTS false for a nil id, so the first item a new shop added
+	// came back as "Invalid or unauthorized category": an authorisation error for
+	// something that was neither unauthorised nor wrong.
+	//
+	// When there is one, it has to belong to *this* company, not merely to some company
+	// the user is a member of. Scoping it to the user let somebody in two businesses
+	// file one shop's item under the other's category.
+	// A literal 0 counts as "none" as well, the way UpdateItem already treats it: a
+	// client that sends the absence of a category as 0 rather than null means the same
+	// thing by it.
+	if request.CategoryID != nil && *request.CategoryID != 0 {
+		var categoryExists bool
+		err := h.db.DB.QueryRow(`
+			SELECT EXISTS(
+				SELECT 1 FROM categories WHERE id = $1 AND company_id = $2
+			)
+		`, *request.CategoryID, request.CompanyID).Scan(&categoryExists)
 
-	if err != nil || !categoryExists {
-		c.JSON(403, gin.H{"error": "Invalid or unauthorized category"})
-		return
+		if err != nil || !categoryExists {
+			c.JSON(403, gin.H{"error": "Invalid or unauthorized category"})
+			return
+		}
 	}
 
 	// Insert the item
-	// ✅ New
-	_, err = h.db.DB.Exec(`
+	_, err := h.db.DB.Exec(`
     INSERT INTO items 
     (name, category_id, sku, unit, description, cost_price, price, quantity, low_stock_alert, tax_rate, hsn_code, company_id, user_id) 
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)

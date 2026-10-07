@@ -13,7 +13,6 @@ import {
   ApiError,
   auth as authApi,
   companies as companiesApi,
-  getToken,
   setToken,
   type AuthUser,
   type Company,

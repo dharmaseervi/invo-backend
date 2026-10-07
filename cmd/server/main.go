@@ -23,6 +23,16 @@ import (
 // the server buffer arbitrary amounts of memory. Invoice payloads are kilobytes.
 const maxRequestBytes = 2 << 20 // 2 MiB
 
+// maxImportRequestBytes is the exception, for the two catalogue-import routes. A
+// workbook arrives base64-encoded inside JSON, which inflates it by a third, so the
+// 4 MiB file the import handler says it accepts needs more than 2 MiB of request to
+// arrive in. It never could: the general limit rejected it first, and the file cap was
+// dead letter. The three numbers now agree — 4 MiB of file fits in 8 MiB of request.
+const maxImportRequestBytes = 8 << 20 // 8 MiB
+
+// importPathPrefix is where that exception applies.
+const importPathPrefix = "/api/v1/items/import"
+
 func main() {
 	cfg := config.Load()
 
@@ -216,7 +226,11 @@ func main() {
 		})
 	})
 	r.Use(func(c *gin.Context) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBytes)
+		limit := int64(maxRequestBytes)
+		if strings.HasPrefix(c.Request.URL.Path, importPathPrefix) {
+			limit = maxImportRequestBytes
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, limit)
 		c.Next()
 	})
 

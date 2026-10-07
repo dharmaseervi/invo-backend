@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getToken } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Icon, type IconName } from "@/components/icons";
 import { Button, Card, Spinner, useOverlay } from "@/components/ui";
@@ -64,12 +63,15 @@ export function AppShell({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { loading, company, companies, selectCompany, signOut } = useAuth();
+  const { loading, signedIn, company, companies, selectCompany, signOut } = useAuth();
   const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
-    if (!loading && !getToken()) router.replace("/login");
-  }, [loading, router]);
+    // Asked of the provider, which knows because it has used the session, rather than
+    // of localStorage. In production there is no token to find, so the old check sent
+    // every validly signed-in browser straight back to the login screen.
+    if (!loading && !signedIn) router.replace("/login");
+  }, [loading, signedIn, router]);
 
   if (loading) {
     return (

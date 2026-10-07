@@ -272,6 +272,9 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		return
 	}
 
+	// Verifying an address signs the person in, so the browser needs the cookie for it.
+	setSessionCookie(c, tokenString, h.tokenExpiration)
+
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Email verified successfully!",
 		"user": gin.H{
@@ -370,6 +373,10 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token refresh failed"})
 		return
 	}
+
+	// The refreshed token replaces the cookie too, or a browser would keep presenting
+	// the old one and get signed out at its original expiry however often it refreshed.
+	setSessionCookie(c, tokenString, h.tokenExpiration)
 
 	c.JSON(http.StatusOK, gin.H{
 		"token":      tokenString,
@@ -634,6 +641,13 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
+
+	// The new session has to reach the browser as a cookie, like a password login's
+	// does. This one matters more than the others: resetting a password revokes the
+	// existing session, so the cookie the browser was holding is already dead and
+	// cannot stand in for the new one. Without this a reset left the browser with no
+	// usable session and no way back except logging in again.
+	setSessionCookie(c, tokenString, h.tokenExpiration)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Password reset successfully",
