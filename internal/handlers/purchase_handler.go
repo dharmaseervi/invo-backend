@@ -3,11 +3,13 @@ package handlers
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"invo-server/internal/pdf"
 	"invo-server/internal/services"
 
 	"github.com/gin-gonic/gin"
@@ -29,7 +31,8 @@ func (h *PurchaseHandler) company(c *gin.Context) (int64, bool) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id is required"})
 		return 0, false
 	}
-	owned, err := companyBelongsToUser(h.db, companyID, c.GetInt("user_id"))
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, c.GetInt("user_id"))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
 		return 0, false
@@ -85,7 +88,8 @@ func (h *PurchaseHandler) CreateSupplier(c *gin.Context) {
 	}
 
 	var id int64
-	err := h.db.QueryRow(`
+	err := h.db.QueryRowContext(c.Request.Context(),
+		`
 		INSERT INTO suppliers (company_id, user_id, name, phone, email, gstin, address, city, state, pincode, notes)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		RETURNING id
@@ -158,7 +162,8 @@ func (h *PurchaseHandler) GetSuppliers(c *gin.Context) {
 		args = append(args, limit, mustAtoi(c.Query("offset")))
 	}
 
-	rows, err := h.db.Query(query, args...)
+	rows, err := h.db.QueryContext(c.Request.Context(),
+		query, args...)
 	if err != nil {
 		log.Println("failed to fetch suppliers:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch suppliers"})
@@ -258,13 +263,19 @@ func (h *PurchaseHandler) GetBills(c *gin.Context) {
 	case "overdue":
 		query += " AND b.status IN ('unpaid','partial') AND b.due_date IS NOT NULL AND CURRENT_DATE > b.due_date"
 	}
+	if search := strings.TrimSpace(c.Query("search")); search != "" {
+		pos := strconv.Itoa(len(args) + 1)
+		query += " AND (b.bill_number ILIKE $" + pos + " OR s.name ILIKE $" + pos + ")"
+		args = append(args, "%"+search+"%")
+	}
 	query += " ORDER BY b.bill_date DESC, b.id DESC"
 	if limit := clampPageSize(mustAtoi(c.DefaultQuery("limit", "50")), 50); limit > 0 {
 		query += " LIMIT $" + strconv.Itoa(len(args)+1) + " OFFSET $" + strconv.Itoa(len(args)+2)
 		args = append(args, limit, mustAtoi(c.Query("offset")))
 	}
 
-	rows, err := h.db.Query(query, args...)
+	rows, err := h.db.QueryContext(c.Request.Context(),
+		query, args...)
 	if err != nil {
 		log.Println("failed to fetch purchase bills:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch bills"})
@@ -318,7 +329,8 @@ func (h *PurchaseHandler) GetBill(c *gin.Context) {
 		subtotal, tax, total, paid, remaining       float64
 		status, notes                               string
 	)
-	err = h.db.QueryRow(`
+	err = h.db.QueryRowContext(c.Request.Context(),
+		`
 		SELECT b.supplier_id, COALESCE(s.name, ''), b.bill_number,
 		       TO_CHAR(b.bill_date, 'YYYY-MM-DD'),
 		       COALESCE(TO_CHAR(b.due_date, 'YYYY-MM-DD'), ''),
@@ -340,7 +352,8 @@ func (h *PurchaseHandler) GetBill(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(`
+	rows, err := h.db.QueryContext(c.Request.Context(),
+		`
 		SELECT bi.item_id, COALESCE(i.name, ''), bi.qty, bi.rate, bi.tax_rate, bi.total
 		FROM purchase_bill_items bi
 		LEFT JOIN items i ON i.id = bi.item_id
@@ -561,4 +574,176 @@ func (h *PurchaseHandler) GetReturns(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": out})
+}
+
+// MARK: - Supplier edit
+
+// UpdateSupplier corrects a supplier's name, phone, address, or GSTIN.
+//
+// PUT /api/v1/suppliers/:id?company_id=1
+func (h *PurchaseHandler) UpdateSupplier(c *gin.Context) {
+	companyID, ok := h.company(c)
+	if !ok {
+		return
+	}
+	supplierID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid supplier"})
+		return
+	}
+
+	var req struct {
+		Name    string `json:"name"`
+		Phone   string `json:"phone"`
+		Email   string `json:"email"`
+		GSTIN   string `json:"gstin"`
+		Address string `json:"address"`
+		City    string `json:"city"`
+		State   string `json:"state"`
+		Pincode string `json:"pincode"`
+		Notes   string `json:"notes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "A supplier needs a name."})
+		return
+	}
+
+	res, err := h.db.ExecContext(c.Request.Context(), `
+		UPDATE suppliers
+		SET name    = $1,
+		    phone   = $2,
+		    email   = $3,
+		    gstin   = $4,
+		    address = $5,
+		    city    = $6,
+		    state   = $7,
+		    pincode = $8,
+		    notes   = $9,
+		    updated_at = NOW()
+		WHERE id = $10 AND company_id = $11
+	`, strings.TrimSpace(req.Name), req.Phone, req.Email,
+		strings.ToUpper(strings.TrimSpace(req.GSTIN)),
+		req.Address, req.City, req.State, req.Pincode, req.Notes,
+		supplierID, companyID)
+	if err != nil {
+		log.Println("failed to update supplier:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update that supplier"})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Supplier not found"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// MARK: - Bill cancellation
+
+// CancelBill voids a purchase bill: marks it cancelled, reverses any stock that came in
+// with it, and frees the payments applied against it so they become a supplier advance.
+//
+// POST /api/v1/purchase-bills/:id/cancel?company_id=1
+func (h *PurchaseHandler) CancelBill(c *gin.Context) {
+	companyID, ok := h.company(c)
+	if !ok {
+		return
+	}
+	billID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid bill id"})
+		return
+	}
+
+	if err := h.service.CancelBill(c.Request.Context(), companyID, billID); err != nil {
+		fail(c, err, "Failed to cancel that bill")
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// MARK: - Supplier statement PDF
+
+// GetSupplierStatementPDF renders a supplier's account statement as a PDF.
+//
+// GET /api/v1/suppliers/:id/ledger/statement.pdf?company_id=1&start=YYYY-MM-DD&end=YYYY-MM-DD
+func (h *PurchaseHandler) GetSupplierStatementPDF(c *gin.Context) {
+	supplierID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid supplier"})
+		return
+	}
+	companyIDStr := c.Query("company_id")
+	if companyIDStr == "" {
+		companyIDStr = c.GetHeader("X-Company-ID")
+	}
+	companyID, err := strconv.ParseInt(companyIDStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "company_id missing"})
+		return
+	}
+
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, c.GetInt("user_id"))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized company access"})
+		return
+	}
+
+	from, to := statementPeriod(c.Query("start"), c.Query("end"))
+
+	stmt, err := h.service.SupplierStatementFor(c.Request.Context(), companyID, supplierID, from, to)
+	if err != nil {
+		fail(c, err, "Failed to build that statement")
+		return
+	}
+
+	data := pdf.StatementData{
+		CompanyName:    stmt.CompanyName,
+		CompanyGSTIN:   stmt.CompanyGSTIN,
+		CompanyPhone:   stmt.CompanyPhone,
+		CompanyAddress: stmt.CompanyAddress,
+		ClientName:     stmt.SupplierName,
+		ClientPhone:    stmt.SupplierPhone,
+		ClientAddress:  stmt.SupplierAddress,
+		From:           stmt.From,
+		To:             stmt.To,
+		Opening:        stmt.Opening,
+		Billed:         stmt.Billed,
+		Paid:           stmt.Paid,
+		Closing:        stmt.Closing,
+	}
+	for _, e := range stmt.Entries {
+		data.Lines = append(data.Lines, pdf.StatementLine{
+			Date:        e.EntryTime,
+			Description: e.Description,
+			Reference:   e.Reference,
+			Debit:       e.Debit,
+			Credit:      e.Credit,
+			Balance:     e.Balance,
+		})
+	}
+
+	pdfBytes, err := pdf.GenerateStatementPDF(data)
+	if err != nil {
+		log.Println("failed to render supplier statement pdf:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build that statement"})
+		return
+	}
+
+	fileName := fmt.Sprintf(
+		"SupplierStatement_%s_%s.pdf",
+		safeFileName(stmt.SupplierName), from.Format("Jan2006"),
+	)
+	c.Header("Content-Disposition", `attachment; filename="`+fileName+`"`)
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }

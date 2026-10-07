@@ -135,16 +135,19 @@ var routePermissions = map[string]Permission{
 	"POST /api/v1/categories":           PermEditCatalogue,
 
 	// What the shop pays, and who it owes.
-	"POST /api/v1/suppliers":                   PermSeeCosts,
-	"GET /api/v1/suppliers":                    PermSeeCosts,
-	"POST /api/v1/purchase-bills":              PermSeeCosts,
-	"GET /api/v1/purchase-bills":               PermSeeCosts,
-	"GET /api/v1/purchase-bills/:id":           PermSeeCosts,
-	"POST /api/v1/supplier-payments":           PermSeeCosts,
-	"POST /api/v1/purchase-returns":            PermSeeCosts,
-	"GET /api/v1/purchase-returns":             PermSeeCosts,
-	"GET /api/v1/suppliers/:id/ledger":         PermSeeCosts,
-	"GET /api/v1/suppliers/:id/ledger/summary": PermSeeCosts,
+	"POST /api/v1/suppliers":                            PermSeeCosts,
+	"GET /api/v1/suppliers":                             PermSeeCosts,
+	"PUT /api/v1/suppliers/:id":                         PermSeeCosts,
+	"POST /api/v1/purchase-bills":                       PermSeeCosts,
+	"GET /api/v1/purchase-bills":                        PermSeeCosts,
+	"GET /api/v1/purchase-bills/:id":                    PermSeeCosts,
+	"POST /api/v1/purchase-bills/:id/cancel":            PermSeeCosts,
+	"POST /api/v1/supplier-payments":                    PermSeeCosts,
+	"POST /api/v1/purchase-returns":                     PermSeeCosts,
+	"GET /api/v1/purchase-returns":                      PermSeeCosts,
+	"GET /api/v1/suppliers/:id/ledger":                  PermSeeCosts,
+	"GET /api/v1/suppliers/:id/ledger/summary":          PermSeeCosts,
+	"GET /api/v1/suppliers/:id/ledger/statement.pdf":    PermSeeCosts,
 	"GET /api/v1/item/:itemId/movements":       PermSeeCosts,
 
 	// Closing the day. Counting the floor corrects stock and shows what everything
@@ -170,23 +173,24 @@ var routePermissions = map[string]Permission{
 	// refused the expense list could still read any one expense by id and change its
 	// amount. Recording one was open too. What the shop spends is one subject, and
 	// every route that touches it needs the same answer.
-	"POST /api/v1/expenses":    PermSeeReports,
-	"GET /api/v1/expenses/:id": PermSeeReports,
-	"PUT /api/v1/expenses/:id": PermSeeReports,
-	"GET /api/v1/invoices/summary":                      PermSeeReports,
-	"GET /api/v1/companies/:companyId/payments":         PermSeeReports,
-	"GET /api/v1/dashboard":                             PermSeeReports,
-	"GET /api/v1/companies/:companyId/reports/gstr1":    PermSeeReports,
-	"GET /api/v1/companies/:companyId/reports/aging":    PermSeeReports,
-	"GET /api/v1/companies/:companyId/reports/stock":    PermSeeReports,
+	"POST /api/v1/expenses":                          PermSeeReports,
+	"GET /api/v1/expenses/:id":                       PermSeeReports,
+	"PUT /api/v1/expenses/:id":                       PermSeeReports,
+	"GET /api/v1/invoices/summary":                   PermSeeReports,
+	"GET /api/v1/companies/:companyId/payments":      PermSeeReports,
+	"GET /api/v1/dashboard":                          PermSeeReports,
+	"GET /api/v1/companies/:companyId/reports/gstr1": PermSeeReports,
+	"GET /api/v1/companies/:companyId/reports/aging": PermSeeReports,
+	"GET /api/v1/companies/:companyId/reports/stock": PermSeeReports,
 
 	// The shop's own settings. Reading the bank list is left to any member: an
 	// invoice prints those details, and somebody writing one may need to pick which
 	// account it goes on. Changing them is the owner's.
-	"PUT /api/v1/companies/:companyId":               PermSettings,
-	"POST /api/v1/companies/:companyId/address":      PermSettings,
-	"POST /api/v1/companies/:companyId/banks":        PermSettings,
-	"PUT /api/v1/companies/:companyId/banks/:bankId": PermSettings,
+	"PUT /api/v1/companies/:companyId":                  PermSettings,
+	"POST /api/v1/companies/:companyId/address":         PermSettings,
+	"POST /api/v1/companies/:companyId/banks":           PermSettings,
+	"PUT /api/v1/companies/:companyId/banks/:bankId":    PermSettings,
+	"DELETE /api/v1/companies/:companyId/banks/:bankId": PermSettings,
 
 	// Who works here.
 	"GET /api/v1/companies/:companyId/staff":              PermManageStaff,
@@ -239,7 +243,7 @@ func Permissions(db *sql.DB) gin.HandlerFunc {
 		}
 
 		var role string
-		err := db.QueryRow(
+		err := db.QueryRowContext(c.Request.Context(),
 			`SELECT role FROM company_members WHERE company_id = $1 AND user_id = $2`,
 			companyID, userID,
 		).Scan(&role)
@@ -283,21 +287,25 @@ var recordCompany = map[string]struct {
 	param string
 	query string
 }{
-	"/api/v1/invoices/:id":                   {"id", `SELECT company_id FROM invoices WHERE id = $1`},
-	"/api/v1/invoices/:id/cancel":            {"id", `SELECT company_id FROM invoices WHERE id = $1`},
-	"/api/v1/expenses/:id":                   {"id", `SELECT company_id FROM expensess WHERE id = $1`},
-	"/api/v1/payments/:id/reverse":           {"id", `SELECT company_id FROM payments WHERE id = $1`},
-	"/api/v1/payments/:id/allocations":       {"id", `SELECT company_id FROM payments WHERE id = $1`},
-	"/api/v1/clients/:clientId":              {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
-	"/api/v1/ledger/:clientId":               {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
-	"/api/v1/ledger/:clientId/summary":       {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
-	"/api/v1/ledger/:clientId/statement.pdf": {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
-	"/api/v1/items/:itemId":                  {"itemId", `SELECT company_id FROM items WHERE id = $1`},
-	"/api/v1/item/:itemId/restock":           {"itemId", `SELECT company_id FROM items WHERE id = $1`},
-	"/api/v1/item/:itemId/movements":         {"itemId", `SELECT company_id FROM items WHERE id = $1`},
-	"/api/v1/purchase-bills/:id":             {"id", `SELECT company_id FROM purchase_bills WHERE id = $1`},
-	"/api/v1/suppliers/:id/ledger":           {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
-	"/api/v1/suppliers/:id/ledger/summary":   {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/companies/:companyId/banks/:bankId": {"bankId", `SELECT company_id FROM company_bank_accounts WHERE id = $1`},
+	"/api/v1/invoices/:id":                       {"id", `SELECT company_id FROM invoices WHERE id = $1`},
+	"/api/v1/invoices/:id/cancel":                {"id", `SELECT company_id FROM invoices WHERE id = $1`},
+	"/api/v1/expenses/:id":                       {"id", `SELECT company_id FROM expensess WHERE id = $1`},
+	"/api/v1/payments/:id/reverse":               {"id", `SELECT company_id FROM payments WHERE id = $1`},
+	"/api/v1/payments/:id/allocations":           {"id", `SELECT company_id FROM payments WHERE id = $1`},
+	"/api/v1/clients/:clientId":                  {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
+	"/api/v1/ledger/:clientId":                   {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
+	"/api/v1/ledger/:clientId/summary":           {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
+	"/api/v1/ledger/:clientId/statement.pdf":     {"clientId", `SELECT company_id FROM clients WHERE id = $1`},
+	"/api/v1/items/:itemId":                      {"itemId", `SELECT company_id FROM items WHERE id = $1`},
+	"/api/v1/item/:itemId/restock":               {"itemId", `SELECT company_id FROM items WHERE id = $1`},
+	"/api/v1/item/:itemId/movements":             {"itemId", `SELECT company_id FROM items WHERE id = $1`},
+	"/api/v1/purchase-bills/:id":                    {"id", `SELECT company_id FROM purchase_bills WHERE id = $1`},
+	"/api/v1/purchase-bills/:id/cancel":            {"id", `SELECT company_id FROM purchase_bills WHERE id = $1`},
+	"/api/v1/suppliers/:id":                        {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/suppliers/:id/ledger":                 {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/suppliers/:id/ledger/summary":         {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/suppliers/:id/ledger/statement.pdf":   {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
 }
 
 // companyForRequest works out which business a request concerns, and refuses to answer
@@ -339,7 +347,8 @@ func companyForRequest(c *gin.Context, db *sql.DB) (int64, bool) {
 			return 0, false
 		}
 		var companyID int64
-		if err := db.QueryRow(lookup.query, id).Scan(&companyID); err != nil {
+		if err := db.QueryRowContext(c.Request.Context(),
+			lookup.query, id).Scan(&companyID); err != nil {
 			// Including a record that does not exist, which resolves to nothing and
 			// is refused rather than waved through.
 			return 0, false

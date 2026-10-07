@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"database/sql"
+	"time"
 
 	"invo-server/internal/money"
 )
@@ -199,5 +201,126 @@ func (s *PurchaseService) SupplierLedgerTotals(
 	// Through the decimal arithmetic rather than straight float subtraction, which
 	// turned ₹2,663.60 owing into 2663.5999999999985 on the way to the app.
 	out.Balance = money.FromFloat(out.Billed).Sub(money.FromFloat(out.Paid)).Round().Float64()
+	return out, nil
+}
+
+// SupplierStatementEntry is one line with a parsed time for PDF rendering.
+type SupplierStatementEntry struct {
+	Kind        string
+	ID          int64
+	Date        string
+	EntryTime   time.Time
+	Reference   string
+	Description string
+	Debit       float64
+	Credit      float64
+	Balance     float64
+}
+
+// SupplierStatement is a supplier's account over a period, ready for PDF rendering.
+type SupplierStatement struct {
+	CompanyName    string
+	CompanyGSTIN   string
+	CompanyPhone   string
+	CompanyAddress string
+
+	SupplierName    string
+	SupplierPhone   string
+	SupplierAddress string
+
+	From    time.Time
+	To      time.Time
+	Opening float64
+	Entries []SupplierStatementEntry
+	Billed  float64
+	Paid    float64
+	Closing float64
+}
+
+// SupplierStatementFor builds a supplier's statement between two dates, inclusive.
+//
+// The opening balance is the running balance of the last entry before `from`. Entries
+// in the period carry their balance as it stood at each moment — the full history window
+// function runs inside the subquery, so a paged line's balance is still correct.
+func (s *PurchaseService) SupplierStatementFor(
+	ctx context.Context,
+	companyID, supplierID int64,
+	from, to time.Time,
+) (SupplierStatement, error) {
+	out := SupplierStatement{From: from, To: to}
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(co.name, ''), COALESCE(co.gst, ''), COALESCE(co.phone, ''),
+			TRIM(BOTH ', ' FROM CONCAT_WS(', ',
+				NULLIF(co.address, ''), NULLIF(co.city, ''),
+				NULLIF(co.state, ''), NULLIF(co.pincode, ''))),
+			COALESCE(su.name, ''), COALESCE(su.phone, ''),
+			TRIM(BOTH ', ' FROM CONCAT_WS(', ',
+				NULLIF(su.address, ''), NULLIF(su.city, ''),
+				NULLIF(su.state, ''), NULLIF(su.pincode, '')))
+		FROM suppliers su
+		JOIN companies co ON co.id = su.company_id
+		WHERE su.id = $1 AND su.company_id = $2
+	`, supplierID, companyID).Scan(
+		&out.CompanyName, &out.CompanyGSTIN, &out.CompanyPhone, &out.CompanyAddress,
+		&out.SupplierName, &out.SupplierPhone, &out.SupplierAddress,
+	)
+	if err == sql.ErrNoRows {
+		return out, PurchaseInputError{"That supplier isn't one of this company's."}
+	}
+	if err != nil {
+		return out, err
+	}
+
+	// The balance at the moment the period opened — the last entry strictly before from.
+	err = s.db.QueryRowContext(ctx, `
+		SELECT COALESCE((
+			SELECT balance FROM (`+supplierLedgerRows+`) history
+			WHERE entry_date < $3
+			ORDER BY entry_date DESC, entered_at DESC, kind DESC, id DESC
+			LIMIT 1
+		), 0)
+	`, companyID, supplierID, from).Scan(&out.Opening)
+	if err != nil {
+		return out, err
+	}
+
+	// Entries in the period, oldest first, with their running balance from full history.
+	end := to.AddDate(0, 0, 1)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT kind, id, date_text, entry_date, reference, description, debit, credit, balance
+		FROM (`+supplierLedgerRows+`) history
+		WHERE entry_date >= $3 AND entry_date < $4
+		ORDER BY entry_date, entered_at, kind, id
+	`, companyID, supplierID, from, end)
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+
+	out.Entries = []SupplierStatementEntry{}
+	for rows.Next() {
+		var e SupplierStatementEntry
+		if err := rows.Scan(
+			&e.Kind, &e.ID, &e.Date, &e.EntryTime,
+			&e.Reference, &e.Description,
+			&e.Debit, &e.Credit, &e.Balance,
+		); err != nil {
+			return out, err
+		}
+		out.Billed += e.Debit
+		out.Paid += e.Credit
+		out.Entries = append(out.Entries, e)
+	}
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+
+	if n := len(out.Entries); n > 0 {
+		out.Closing = out.Entries[n-1].Balance
+	} else {
+		out.Closing = out.Opening
+	}
 	return out, nil
 }

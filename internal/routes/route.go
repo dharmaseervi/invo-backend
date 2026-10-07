@@ -210,15 +210,18 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// Purchases: suppliers, their bills, and what the shop owes them.
 		protected.POST("/suppliers", purchaseHandler.CreateSupplier)
 		protected.GET("/suppliers", purchaseHandler.GetSuppliers)
+		protected.PUT("/suppliers/:id", purchaseHandler.UpdateSupplier)
 		protected.POST("/purchase-bills", purchaseHandler.RecordBill)
 		protected.GET("/purchase-bills", purchaseHandler.GetBills)
 		protected.GET("/purchase-bills/:id", purchaseHandler.GetBill)
+		protected.POST("/purchase-bills/:id/cancel", purchaseHandler.CancelBill)
 		protected.POST("/supplier-payments", purchaseHandler.PaySupplier)
 		// Stock going back to a supplier.
 		protected.POST("/purchase-returns", purchaseHandler.RecordReturn)
 		protected.GET("/purchase-returns", purchaseHandler.GetReturns)
 		protected.GET("/suppliers/:id/ledger", purchaseHandler.SupplierLedger)
 		protected.GET("/suppliers/:id/ledger/summary", purchaseHandler.SupplierLedgerSummary)
+		protected.GET("/suppliers/:id/ledger/statement.pdf", purchaseHandler.GetSupplierStatementPDF)
 
 		// Closing the day: counting the floor, and counting the drawer.
 		protected.POST("/stocktakes", closingHandler.StartStocktake)
@@ -256,6 +259,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.GET("/companies/:companyId/banks", companyBankHandlerss.List)
 		protected.POST("/companies/:companyId/banks", companyBankHandlerss.Create)
 		protected.PUT("/companies/:companyId/banks/:bankId", companyBankHandlerss.Update)
+		protected.DELETE("/companies/:companyId/banks/:bankId", companyBankHandlerss.Delete)
 
 		protected.POST("/invoices/:id/send-email", emailHandler.SendInvoiceEmail)
 

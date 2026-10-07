@@ -500,3 +500,85 @@ func settleSupplierBills(
 	}
 	return amount, nil
 }
+
+// CancelBill voids a purchase bill.
+//
+// It marks the bill cancelled, reverses the stock that arrived with it (if the bill had
+// line items rather than being amount-only), and detaches any payments that were applied
+// against it — those payments stay on the books as a supplier advance.
+//
+// A bill that is already cancelled is refused: cancelling twice makes no sense and the
+// second call would have nothing to reverse.
+func (s *PurchaseService) CancelBill(ctx context.Context, companyID, billID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var status string
+	var isAmountOnly bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT status, is_amount_only
+		FROM purchase_bills
+		WHERE id = $1 AND company_id = $2
+		FOR UPDATE
+	`, billID, companyID).Scan(&status, &isAmountOnly)
+	if err == sql.ErrNoRows {
+		return PurchaseInputError{"That bill isn't one of this company's."}
+	}
+	if err != nil {
+		return err
+	}
+	if status == "cancelled" {
+		return PurchaseInputError{"That bill is already cancelled."}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE purchase_bills
+		SET status = 'cancelled', updated_at = NOW()
+		WHERE id = $1
+	`, billID); err != nil {
+		return err
+	}
+
+	// Reverse stock for each line item that arrived with the bill.
+	if !isAmountOnly {
+		rows, err := tx.QueryContext(ctx, `
+			SELECT item_id, qty FROM purchase_bill_items WHERE bill_id = $1
+		`, billID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var itemID int64
+			var qty int
+			if err := rows.Scan(&itemID, &qty); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				UPDATE items
+				SET stock_quantity = GREATEST(0, stock_quantity - $1),
+				    updated_at = NOW()
+				WHERE id = $2
+			`, qty, itemID); err != nil {
+				return err
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+
+	// Payments that were applied to this bill are detached — they become a free
+	// advance the shop is holding with this supplier. The money is not refunded; the
+	// obligation the payment was settling no longer exists.
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE supplier_payments SET bill_id = NULL WHERE bill_id = $1
+	`, billID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
