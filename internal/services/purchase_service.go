@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"math"
 	"strings"
 
 	"invo-server/internal/money"
@@ -44,6 +45,9 @@ type PurchaseBillRequest struct {
 	DueDate    *string        `json:"due_date"`
 	Notes      string         `json:"notes"`
 	Items      []PurchaseLine `json:"items"`
+	// The invoice's final amount when no stock lines are being recorded. Mutually
+	// exclusive with Items; nil preserves the existing item-based request format.
+	BillAmount *float64 `json:"bill_amount"`
 	// What was paid at the counter, if anything. The rest becomes what the shop owes.
 	PaidAmount float64 `json:"paid_amount"`
 	PaidMethod string  `json:"paid_method"`
@@ -63,11 +67,22 @@ func (s *PurchaseService) RecordBill(
 	if strings.TrimSpace(req.BillNumber) == "" {
 		return 0, PurchaseInputError{"Enter the supplier's bill number."}
 	}
-	if len(req.Items) == 0 {
-		return 0, PurchaseInputError{"A bill needs at least one item."}
+	if req.BillAmount != nil {
+		if len(req.Items) != 0 {
+			return 0, PurchaseInputError{"Enter either an invoice amount or items, not both."}
+		}
+		amount := *req.BillAmount
+		if math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 || amount > 9999999999.99 {
+			return 0, PurchaseInputError{"Enter a valid invoice amount greater than zero."}
+		}
+		if money.FromFloat(amount).Round().IsZero() {
+			return 0, PurchaseInputError{"The invoice amount must be at least 0.01."}
+		}
+	} else if len(req.Items) == 0 {
+		return 0, PurchaseInputError{"Enter an invoice amount or add at least one item."}
 	}
-	if req.PaidAmount < 0 {
-		return 0, PurchaseInputError{"Paid amount cannot be negative."}
+	if math.IsNaN(req.PaidAmount) || math.IsInf(req.PaidAmount, 0) || req.PaidAmount < 0 {
+		return 0, PurchaseInputError{"Enter a valid paid amount of zero or more."}
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -94,6 +109,12 @@ func (s *PurchaseService) RecordBill(
 
 	// Totals first, so the bill row is written once with the right figures.
 	subtotal, tax := money.Zero(), money.Zero()
+	if req.BillAmount != nil {
+		// The existing bill totals store the final amount without inventing a GST
+		// split. Responses mark bills without lines as amount_only so clients do not
+		// present this as an itemised or zero-rated tax invoice.
+		subtotal = money.FromFloat(*req.BillAmount).Round()
+	}
 	type lineTotals struct {
 		line  PurchaseLine
 		net   money.Amount

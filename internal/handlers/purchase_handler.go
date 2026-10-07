@@ -233,7 +233,8 @@ func (h *PurchaseHandler) GetBills(c *gin.Context) {
 		       COALESCE(TO_CHAR(b.due_date, 'YYYY-MM-DD'), ''),
 		       b.subtotal, b.tax, b.total, b.paid_amount, b.remaining_amount, b.status,
 		       (b.due_date IS NOT NULL AND CURRENT_DATE > b.due_date
-		        AND b.status IN ('unpaid','partial')) AS is_overdue
+		        AND b.status IN ('unpaid','partial')) AS is_overdue,
+		       NOT EXISTS (SELECT 1 FROM purchase_bill_items bi WHERE bi.bill_id = b.id) AS amount_only
 		FROM purchase_bills b
 		JOIN suppliers s ON s.id = b.supplier_id
 		WHERE b.company_id = $1
@@ -278,10 +279,10 @@ func (h *PurchaseHandler) GetBills(c *gin.Context) {
 			supplierName, billNumber, billDate, dueDate string
 			subtotal, tax, total, paid, remaining       float64
 			status                                      string
-			isOverdue                                   bool
+			isOverdue, amountOnly                       bool
 		)
 		if err := rows.Scan(&id, &supplierID, &supplierName, &billNumber, &billDate, &dueDate,
-			&subtotal, &tax, &total, &paid, &remaining, &status, &isOverdue); err != nil {
+			&subtotal, &tax, &total, &paid, &remaining, &status, &isOverdue, &amountOnly); err != nil {
 			log.Println("failed to scan purchase bill:", err)
 			continue
 		}
@@ -290,7 +291,7 @@ func (h *PurchaseHandler) GetBills(c *gin.Context) {
 			"bill_number": billNumber, "bill_date": billDate, "due_date": dueDate,
 			"subtotal": subtotal, "tax": tax, "total": total,
 			"paid_amount": paid, "remaining_amount": remaining,
-			"status": status, "is_overdue": isOverdue,
+			"status": status, "is_overdue": isOverdue, "amount_only": amountOnly,
 		})
 	}
 
@@ -375,7 +376,7 @@ func (h *PurchaseHandler) GetBill(c *gin.Context) {
 		"bill_number": billNumber, "bill_date": billDate, "due_date": dueDate,
 		"subtotal": subtotal, "tax": tax, "total": total,
 		"paid_amount": paid, "remaining_amount": remaining,
-		"status": status, "notes": notes, "items": items,
+		"status": status, "notes": notes, "items": items, "amount_only": len(items) == 0,
 	})
 }
 
