@@ -61,7 +61,6 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	emailHandler := handlers.NewEmailHandler(emailService, db.DB)
 	// Add OTP handler
 	otpHandler := handlers.NewOTPHandler(db, emailService, []byte(cfg.JWT.Secret))
-
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -170,6 +169,10 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.PUT("/invoices/:id/update", invoiceHandler.UpdateInvoice) // 👈 REQUIRED
 		protected.DELETE("/invoices/:id", invoiceHandler.DeleteInvoice)
 		protected.POST("/invoices/:id/cancel", invoiceHandler.CancelInvoice)
+
+
+		// GSTIN offline lookup — validates format and returns state name
+		protected.GET("/gstin/:gstin", handlers.LookupGSTIN)
 
 		// Estimate / Quotation routes
 		protected.POST("/estimates", estimateHandler.CreateEstimate)
