@@ -1,0 +1,1 @@
+ALTER TABLE estimates DROP COLUMN IF EXISTS doc_type;

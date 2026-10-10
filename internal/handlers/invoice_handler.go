@@ -254,11 +254,13 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 			tax,
 			discount,
 			total,
+			tds_rate,
+			tds_amount,
 			status,
 			paid_amount,
 			remaining_amount
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',0,$10)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'draft',0,$10)
 		RETURNING id
 	`,
 		req.CompanyID,
@@ -271,6 +273,8 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		taxTotal,
 		invoiceDiscount,
 		grandTotal,
+		req.TDSRate,
+		grandTotal*req.TDSRate/100,
 	).Scan(&invoiceID)
 
 	if err != nil {
@@ -842,9 +846,10 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 	var (
 		id, companyID, clientID int
 		invoiceNumber, status   string
-		clientName              string
+		clientName, clientPhone string
 		invoiceDate, dueDate    time.Time
 		createdAt               time.Time
+		tdsRate, tdsAmount      float64
 		subtotal, tax, total    float64
 		discount                float64
 		paidAmount, remaining   float64
@@ -870,6 +875,9 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 			i.status,
 			i.created_at,
 			c.name,
+			COALESCE(c.phone, ''),
+			COALESCE(i.tds_rate, 0),
+			COALESCE(i.tds_amount, 0),
 			-- Overdue means owed and late: issued or part-paid only, the rule the
 			-- overdue push check already uses. "Not paid" also caught drafts, which
 			-- were never sent, and cancelled invoices, which are void.
@@ -894,6 +902,9 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		&status,
 		&createdAt,
 		&clientName,
+		&clientPhone,
+		&tdsRate,
+		&tdsAmount,
 		&daysOverdue,
 		&isOverdue,
 	)
@@ -989,9 +1000,12 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		"remaining_amount": remaining,
 		"is_overdue":       isOverdue,
 		"days_overdue":     daysOverdue,
+		"tds_rate":   tdsRate,
+		"tds_amount": tdsAmount,
 		"client": gin.H{
-			"id":   clientID,
-			"name": clientName,
+			"id":    clientID,
+			"name":  clientName,
+			"phone": clientPhone,
 		},
 		"items":      items,
 		"created_at": createdAt,

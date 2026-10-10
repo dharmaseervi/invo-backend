@@ -15,9 +15,9 @@ import (
 // back to the client's saved billing address, then the plain client record.
 func FetchEstimatePDFData(ctx context.Context, db *sql.DB, estimateID int) (pdf.InvoicePDFData, error) {
 	var data pdf.InvoicePDFData
-	data.Invoice.DocType = "QUOTATION"
 
 	var clientID int
+	var docType string
 	err := db.QueryRowContext(ctx,
 		`
 		SELECT
@@ -29,7 +29,8 @@ func FetchEstimatePDFData(ctx context.Context, db *sql.DB, estimateID int) (pdf.
 			e.discount,
 			e.total,
 			e.client_id,
-			c.name
+			c.name,
+			COALESCE(e.doc_type, '')
 		FROM estimates e
 		JOIN companies c ON c.id = e.company_id
 		WHERE e.id = $1
@@ -43,9 +44,15 @@ func FetchEstimatePDFData(ctx context.Context, db *sql.DB, estimateID int) (pdf.
 		&data.Invoice.Total,
 		&clientID,
 		&data.Company.Name,
+		&docType,
 	)
 	if err != nil {
 		return data, fmt.Errorf("fetch estimate: %w", err)
+	}
+	if docType != "" {
+		data.Invoice.DocType = docType
+	} else {
+		data.Invoice.DocType = "QUOTATION"
 	}
 	data.Invoice.AmountDue = data.Invoice.Total
 

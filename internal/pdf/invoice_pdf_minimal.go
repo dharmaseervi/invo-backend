@@ -218,6 +218,9 @@ func (g *MinimalInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	if inv.Discount > 0 {
 		rowCount++
 	}
+	if inv.TDSRate > 0 {
+		rowCount++
+	}
 
 	if y+float64(rowCount)*6+24 > 258 {
 		pdf.AddPage()
@@ -237,7 +240,17 @@ func (g *MinimalInvoiceGenerator) drawTotalsSection(y float64) float64 {
 		g.totalRow(x, rowY, "Discount", -inv.Discount, false)
 		rowY += 6
 	}
+	if inv.TDSRate > 0 {
+		g.totalRow(x, rowY, fmt.Sprintf("TDS @ %.1f%%", inv.TDSRate), -inv.TDSAmount, false)
+		rowY += 6
+	}
 
+	displayTotal := inv.Total
+	totalLabel := "Total"
+	if inv.TDSRate > 0 {
+		displayTotal = inv.Total - inv.TDSAmount
+		totalLabel = "Net Receivable"
+	}
 	y = rowY
 	pdf.SetDrawColor(0, 0, 0)
 	pdf.SetLineWidth(0.3)
@@ -245,13 +258,13 @@ func (g *MinimalInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	pdf.SetLineWidth(0.2)
 	y += 3
 
-	g.totalRow(x, y, "Total", g.data.Invoice.Total, true)
+	g.totalRow(x, y, totalLabel, displayTotal, true)
 
 	y2 := y + 12
 	pdf.SetFont("Helvetica", "I", 7.5)
 	pdf.SetTextColor(140, 140, 140)
 	pdf.SetXY(marginL, y2)
-	pdf.Cell(pageW, 5, "In words: "+AmountToWords(g.data.Invoice.Total))
+	pdf.Cell(pageW, 5, "In words: "+AmountToWords(displayTotal))
 	pdf.SetTextColor(0, 0, 0)
 
 	return y2 + 10

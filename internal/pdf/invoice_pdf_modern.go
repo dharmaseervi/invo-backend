@@ -236,6 +236,9 @@ func (g *ModernInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	if inv.Discount > 0 {
 		rowCount++
 	}
+	if inv.TDSRate > 0 {
+		rowCount++
+	}
 
 	if y+float64(rowCount)*6+26 > 258 {
 		pdf.AddPage()
@@ -257,23 +260,33 @@ func (g *ModernInvoiceGenerator) drawTotalsSection(y float64) float64 {
 		g.taxRow(x, rowY, "Discount", -inv.Discount)
 		rowY += 6
 	}
+	if inv.TDSRate > 0 {
+		g.taxRow(x, rowY, fmt.Sprintf("TDS @ %.1f%%", inv.TDSRate), -inv.TDSAmount)
+		rowY += 6
+	}
 
+	displayTotal := inv.Total
+	totalLabel := "TOTAL"
+	if inv.TDSRate > 0 {
+		displayTotal = inv.Total - inv.TDSAmount
+		totalLabel = "NET RECEIVABLE"
+	}
 	y = rowY + 2
 	pdf.SetFillColor(accentR, accentG, accentB)
 	pdf.Rect(x-4, y, 84, 11, "F")
 	pdf.SetTextColor(255, 255, 255)
 	pdf.SetFont("Helvetica", "B", 10)
 	pdf.SetXY(x, y+2.5)
-	pdf.Cell(35, 6, "TOTAL")
+	pdf.Cell(50, 6, totalLabel)
 	pdf.SetXY(x, y+2.5)
-	pdf.CellFormat(80, 6, fmt.Sprintf("INR %.2f", g.data.Invoice.Total), "", 0, "R", false, 0, "")
+	pdf.CellFormat(80, 6, fmt.Sprintf("INR %.2f", displayTotal), "", 0, "R", false, 0, "")
 	pdf.SetTextColor(0, 0, 0)
 
 	y2 := y + 15
 	pdf.SetFont("Helvetica", "I", 7.5)
 	pdf.SetTextColor(110, 110, 110)
 	pdf.SetXY(marginL, y2)
-	pdf.Cell(pageW, 5, "In Words: "+AmountToWords(g.data.Invoice.Total))
+	pdf.Cell(pageW, 5, "In Words: "+AmountToWords(displayTotal))
 	pdf.SetTextColor(0, 0, 0)
 
 	return y2 + 10

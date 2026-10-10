@@ -65,6 +65,9 @@ type Invoice struct {
 	// Footer is the company-level text printed at the bottom of every invoice —
 	// bank details, T&C, or a thank-you note set once in company settings.
 	Footer string
+	// TDS fields — zero when TDS does not apply.
+	TDSRate   float64
+	TDSAmount float64
 }
 
 type TaxLine struct {

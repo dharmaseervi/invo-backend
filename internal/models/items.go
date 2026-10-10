@@ -21,6 +21,7 @@ type Item struct {
 	Quantity      int       `json:"quantity"`
 	LowStockAlert int       `json:"low_stock_alert"`
 	TaxRate       float64   `json:"tax_rate"`
+	Barcode       string    `json:"barcode"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

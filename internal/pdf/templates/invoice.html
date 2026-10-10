@@ -147,6 +147,16 @@
         <td><strong>Total</strong></td>
         <td class="right"><strong>{{ .Invoice.Total }}</strong></td>
     </tr>
+    {{ if gt .Invoice.TDSRate 0.0 }}
+    <tr>
+        <td>TDS @ {{ .Invoice.TDSRate }}%</td>
+        <td class="right">- {{ .Invoice.TDSAmount }}</td>
+    </tr>
+    <tr>
+        <td><strong>Net Receivable</strong></td>
+        <td class="right"><strong>{{ printf "%.2f" (subtract .Invoice.Total .Invoice.TDSAmount) }}</strong></td>
+    </tr>
+    {{ end }}
 </table>
 
 <div class="footer">

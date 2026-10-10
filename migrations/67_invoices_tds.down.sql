@@ -1,0 +1,2 @@
+ALTER TABLE invoices DROP COLUMN IF EXISTS tds_rate;
+ALTER TABLE invoices DROP COLUMN IF EXISTS tds_amount;

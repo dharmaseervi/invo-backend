@@ -91,9 +91,9 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 	// Insert the item
 	_, err := h.db.DB.ExecContext(c.Request.Context(),
 		`
-    INSERT INTO items 
-    (name, category_id, sku, unit, description, cost_price, price, quantity, low_stock_alert, tax_rate, hsn_code, company_id, user_id) 
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+    INSERT INTO items
+    (name, category_id, sku, unit, description, cost_price, price, quantity, low_stock_alert, tax_rate, hsn_code, barcode, company_id, user_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 `,
 		request.Name,
 		request.CategoryID,
@@ -106,6 +106,7 @@ func (h *itemHandler) CreateItem(c *gin.Context) {
 		request.LowStockAlert,
 		request.TaxRate,
 		request.HSNCode,
+		request.Barcode,
 		request.CompanyID,
 		userID,
 	)
@@ -167,7 +168,7 @@ func (h *itemHandler) GetItems(c *gin.Context) {
         COALESCE(sku, ''), COALESCE(unit, ''), COALESCE(description, ''),
         COALESCE(cost_price, 0), price, COALESCE(quantity, 0),
         COALESCE(low_stock_alert, 0), COALESCE(tax_rate, 0),
-        COALESCE(hsn_code, ''), company_id, user_id, created_at, updated_at
+        COALESCE(hsn_code, ''), COALESCE(barcode, ''), company_id, user_id, created_at, updated_at
         FROM items
         WHERE company_id = $1
     `
@@ -214,7 +215,7 @@ func (h *itemHandler) GetItems(c *gin.Context) {
 			&item.SKU, &item.Unit, &item.Description,
 			&item.CostPrice, &item.Price, &item.Quantity,
 			&item.LowStockAlert, &item.TaxRate,
-			&item.HSNCode,
+			&item.HSNCode, &item.Barcode,
 			&item.CompanyID, &item.UserID,
 			&item.CreatedAt, &item.UpdatedAt,
 		); err != nil {
@@ -310,8 +311,8 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 		UPDATE items SET
 			name = $1, category_id = $2, sku = $3, unit = $4,
 			description = $5, cost_price = $6, price = $7, quantity = $8,
-			low_stock_alert = $9, tax_rate = $10, hsn_code = $11, updated_at = NOW()
-		WHERE id = $12 AND company_id IN (SELECT company_id FROM companies_for_user($13))
+			low_stock_alert = $9, tax_rate = $10, hsn_code = $11, barcode = $12, updated_at = NOW()
+		WHERE id = $13 AND company_id IN (SELECT company_id FROM companies_for_user($14))
 	`,
 		request.Name,
 		request.CategoryID,
@@ -324,6 +325,7 @@ func (h *itemHandler) UpdateItem(c *gin.Context) {
 		request.LowStockAlert,
 		request.TaxRate,
 		request.HSNCode,
+		request.Barcode,
 		itemID,
 		userID,
 	)
@@ -370,7 +372,7 @@ func (h *itemHandler) GetItemByID(c *gin.Context) {
     COALESCE(sku, ''), COALESCE(unit, ''), COALESCE(description, ''),
     COALESCE(cost_price, 0), price, COALESCE(quantity, 0),
     COALESCE(low_stock_alert, 0), COALESCE(tax_rate, 0),
-    COALESCE(hsn_code, ''), company_id, user_id, created_at, updated_at
+    COALESCE(hsn_code, ''), COALESCE(barcode, ''), company_id, user_id, created_at, updated_at
 FROM items
 WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, itemID, userID).Scan(
@@ -378,7 +380,7 @@ WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 		&item.SKU, &item.Unit, &item.Description,
 		&item.CostPrice, &item.Price, &item.Quantity,
 		&item.LowStockAlert, &item.TaxRate,
-		&item.HSNCode,
+		&item.HSNCode, &item.Barcode,
 		&item.CompanyID, &item.UserID,
 		&item.CreatedAt, &item.UpdatedAt,
 	)
@@ -394,6 +396,41 @@ WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
 		"items": []models.Item{item},
 	})
 
+}
+
+// GetItemByBarcode looks up a single item by its barcode within the caller's company.
+// GET /api/v1/items/:companyId/barcode/:barcode
+func (h *itemHandler) GetItemByBarcode(c *gin.Context) {
+	companyID := c.Param("companyId")
+	barcode := c.Param("barcode")
+	userID := c.GetInt("user_id")
+
+	var item models.Item
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`
+		SELECT id, name, category_id,
+		       COALESCE(sku,''), COALESCE(unit,''), COALESCE(description,''),
+		       COALESCE(cost_price,0), price, COALESCE(quantity,0),
+		       COALESCE(low_stock_alert,0), COALESCE(tax_rate,0),
+		       COALESCE(hsn_code,''), COALESCE(barcode,''), company_id, user_id, created_at, updated_at
+		FROM items
+		WHERE barcode = $1 AND company_id = $2
+		  AND company_id IN (SELECT company_id FROM companies_for_user($3))
+		LIMIT 1
+	`, barcode, companyID, userID).Scan(
+		&item.ID, &item.Name, &item.CategoryID,
+		&item.SKU, &item.Unit, &item.Description,
+		&item.CostPrice, &item.Price, &item.Quantity,
+		&item.LowStockAlert, &item.TaxRate,
+		&item.HSNCode, &item.Barcode,
+		&item.CompanyID, &item.UserID,
+		&item.CreatedAt, &item.UpdatedAt,
+	)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Item not found for this barcode"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"item": item})
 }
 
 // RestockItem records stock received from a supplier — increments quantity and

@@ -47,6 +47,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	staffHandler := handlers.NewStaffHandler(db.DB)
 	stocktakeService := services.NewStocktakeService(db.DB)
 	closingHandler := handlers.NewClosingHandler(db.DB, stocktakeService, ledgerService)
+	challanHandler := handlers.NewChallanHandler(db)
 
 	paymentService := services.NewPaymentService(db.DB, ledgerService)
 	paymentHandler := handlers.NewPaymentHandler(db, paymentService)
@@ -150,6 +151,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.PUT("/items/:itemId", itemHandler.UpdateItem)
 		protected.GET("/items/:companyId/all", itemHandler.GetItems)
 		protected.GET("/item/:itemId/one", itemHandler.GetItemByID)
+		protected.GET("/items/:companyId/barcode/:barcode", itemHandler.GetItemByBarcode)
 		protected.POST("/item/:itemId/restock", itemHandler.RestockItem)
 		protected.GET("/item/:itemId/movements", itemHandler.GetItemMovements)
 
@@ -183,6 +185,12 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/estimates/:id/status", estimateHandler.UpdateEstimateStatus)
 		protected.POST("/estimates/:id/convert", estimateHandler.ConvertToInvoice)
 		protected.GET("/estimates/:id/pdf", estimateHandler.GetEstimatePDF)
+
+		// Delivery challan routes
+		protected.POST("/challans", challanHandler.CreateChallan)
+		protected.GET("/challans", challanHandler.ListChallans)
+		protected.GET("/challans/:id", challanHandler.GetChallanByID)
+		protected.PATCH("/challans/:id/dispatch", challanHandler.DispatchChallan)
 
 		// Expense routes ← Add these lines
 		protected.POST("/expenses", expenseHandler.CreateExpense)

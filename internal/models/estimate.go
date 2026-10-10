@@ -7,6 +7,7 @@ type EstimateRequestDTO struct {
 	ExpiryDate   *string              `json:"expiry_date"`   // YYYY-MM-DD, optional
 	Discount     float64              `json:"discount"`
 	Items        []InvoiceItemRequest `json:"items"`
+	DocType      string               `json:"doc_type"` // "" = QUOTATION, "PROFORMA INVOICE" etc.
 }
 
 type UpdateEstimateRequestDTO struct {

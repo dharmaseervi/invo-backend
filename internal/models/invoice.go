@@ -17,6 +17,7 @@ type InvoiceRequestDTO struct {
 	DueDate     string               `json:"due_date"`
 	Notes       *string              `json:"notes"`
 	Discount    float64              `json:"discount"` // flat amount off the post-tax total
+	TDSRate     float64              `json:"tds_rate"` // TDS % deducted by buyer, e.g. 10
 	Items       []InvoiceItemRequest `json:"items"`
 }
 

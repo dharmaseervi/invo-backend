@@ -341,6 +341,9 @@ func (g *TallyInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	if inv.Discount > 0 {
 		rightRows++
 	}
+	if inv.TDSRate > 0 {
+		rightRows++
+	}
 	h := 38.0
 	if leftHeight := 8 + float64(len(taxRows)+1)*6; leftHeight > h {
 		h = leftHeight
@@ -384,23 +387,35 @@ func (g *TallyInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	pdf.SetXY(mid+3, y+1)
 	pdf.Cell(40, 4, "INVOICE SUMMARY")
 
-	g.taxRow(mid+3, y+8, "Subtotal", inv.Subtotal)
-	g.taxRow(mid+3, y+14, "Total Tax", inv.Tax)
+	sumRowY := y + 8
+	g.taxRow(mid+3, sumRowY, "Subtotal", inv.Subtotal)
+	sumRowY += 6
+	g.taxRow(mid+3, sumRowY, "Total Tax", inv.Tax)
+	sumRowY += 6
 	if inv.Discount > 0 {
-		// Without this line the printed subtotal and tax don't add up to the total.
-		g.taxRow(mid+3, y+20, "Discount", -inv.Discount)
+		g.taxRow(mid+3, sumRowY, "Discount", -inv.Discount)
+		sumRowY += 6
+	}
+	if inv.TDSRate > 0 {
+		g.taxRow(mid+3, sumRowY, fmt.Sprintf("TDS @ %.1f%%", inv.TDSRate), -inv.TDSAmount)
 	}
 
-	// Grand Total bar
+	// Grand Total bar — shows net receivable when TDS applies
+	displayTotal := inv.Total
+	grandLabel := "GRAND TOTAL"
+	if inv.TDSRate > 0 {
+		displayTotal = inv.Total - inv.TDSAmount
+		grandLabel = "NET RECEIVABLE"
+	}
 	pdf.SetFillColor(20, 20, 20)
 	pdf.Rect(mid, barY, pageW/2, 9, "F")
 	pdf.SetTextColor(255, 255, 255)
 	pdf.SetFont("Helvetica", "B", 9)
 	pdf.SetXY(mid+3, barY+1)
-	pdf.Cell(30, 7, "GRAND TOTAL")
+	pdf.Cell(50, 7, grandLabel)
 	pdf.SetXY(mid+3, barY+1)
 	pdf.CellFormat(pageW/2-6, 7,
-		fmt.Sprintf("INR %.2f", inv.Total),
+		fmt.Sprintf("INR %.2f", displayTotal),
 		"", 0, "R", false, 0, "")
 	pdf.SetTextColor(0, 0, 0)
 
@@ -411,7 +426,11 @@ func (g *TallyInvoiceGenerator) drawTotalsSection(y float64) float64 {
 	pdf.SetFont("Helvetica", "I", 7.5)
 	pdf.SetTextColor(40, 40, 40)
 	pdf.SetXY(marginL+2, y2+2)
-	pdf.Cell(pageW-4, 5, "In Words: "+AmountToWords(g.data.Invoice.Total))
+	wordAmt := g.data.Invoice.Total
+	if g.data.Invoice.TDSRate > 0 {
+		wordAmt = g.data.Invoice.Total - g.data.Invoice.TDSAmount
+	}
+	pdf.Cell(pageW-4, 5, "In Words: "+AmountToWords(wordAmt))
 	pdf.SetTextColor(0, 0, 0)
 
 	pdf.SetDrawColor(0, 0, 0)

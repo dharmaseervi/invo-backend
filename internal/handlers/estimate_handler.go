@@ -137,13 +137,13 @@ func (h *EstimateHandler) CreateEstimate(c *gin.Context) {
 		`
 		INSERT INTO estimates (
 			company_id, user_id, client_id, estimate_number,
-			estimate_date, expiry_date, subtotal, tax, discount, total, status
+			estimate_date, expiry_date, subtotal, tax, discount, total, status, doc_type
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft')
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11)
 		RETURNING id
 	`,
 		req.CompanyID, userID, req.ClientID, estimateNumber,
-		estimateDate, expiryDate, subtotal, taxTotal, discount, total,
+		estimateDate, expiryDate, subtotal, taxTotal, discount, total, req.DocType,
 	).Scan(&estimateID)
 	if err != nil {
 		log.Println("failed to create estimate:", err)
@@ -300,6 +300,7 @@ func (h *EstimateHandler) GetEstimateByID(c *gin.Context) {
 	var (
 		id, clientID                   int
 		estimateNumber, status         string
+		docType                        string
 		estimateDate                   time.Time
 		expiryDate                     sql.NullTime
 		subtotal, tax, discount, total float64
@@ -313,14 +314,14 @@ func (h *EstimateHandler) GetEstimateByID(c *gin.Context) {
 		SELECT
 			e.id, e.client_id, e.estimate_number, e.estimate_date, e.expiry_date,
 			e.subtotal, e.tax, e.discount, e.total, e.status, e.converted_invoice_id,
-			e.created_at, c.name
+			e.created_at, c.name, COALESCE(e.doc_type, '')
 		FROM estimates e
 		JOIN clients c ON c.id = e.client_id
 		WHERE e.id = $1 AND e.company_id IN (SELECT company_id FROM companies_for_user($2))
 	`, estimateID, userID).Scan(
 		&id, &clientID, &estimateNumber, &estimateDate, &expiryDate,
 		&subtotal, &tax, &discount, &total, &status, &convertedInvoiceID,
-		&createdAt, &clientName,
+		&createdAt, &clientName, &docType,
 	)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Estimate not found"})
@@ -370,6 +371,7 @@ func (h *EstimateHandler) GetEstimateByID(c *gin.Context) {
 		"discount":        discount,
 		"total":           total,
 		"status":          status,
+		"doc_type":        docType,
 		"created_at":      createdAt,
 		"client":          gin.H{"id": clientID, "name": clientName},
 		"items":           items,
