@@ -150,8 +150,8 @@
 </table>
 
 <div class="footer">
-    <p>Thank you for your business.</p>
-    <p>{{ .Invoice.Notes }}</p>
+    {{ if .Invoice.Footer }}<p>{{ .Invoice.Footer }}</p>{{ else }}<p>Thank you for your business.</p>{{ end }}
+    {{ if .Invoice.Notes }}<p>{{ .Invoice.Notes }}</p>{{ end }}
 </div>
 
 </body>

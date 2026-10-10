@@ -1,0 +1,1 @@
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_footer TEXT NOT NULL DEFAULT '';

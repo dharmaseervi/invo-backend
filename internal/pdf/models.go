@@ -62,6 +62,9 @@ type Invoice struct {
 	// DocType overrides the printed header ("TAX INVOICE" by default) —
 	// e.g. "QUOTATION" when this data is used to render an estimate.
 	DocType string
+	// Footer is the company-level text printed at the bottom of every invoice —
+	// bank details, T&C, or a thank-you note set once in company settings.
+	Footer string
 }
 
 type TaxLine struct {
