@@ -47,3 +47,33 @@ func (h *AgingReportHandler) GetAgingReport(c *gin.Context) {
 
 	c.JSON(http.StatusOK, report)
 }
+
+// GET /api/v1/companies/:companyId/reports/supplier-aging
+func (h *AgingReportHandler) GetSupplierAgingReport(c *gin.Context) {
+	companyID, err := strconv.ParseInt(c.Param("companyId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid companyId"})
+		return
+	}
+
+	userID := c.GetInt("user_id")
+	owned, err := companyBelongsToUser(c.Request.Context(),
+		h.db, companyID, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify company"})
+		return
+	}
+	if !owned {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	report, err := services.GenerateSupplierAgingReport(c.Request.Context(),
+		h.db, companyID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate supplier aging report"})
+		return
+	}
+
+	c.JSON(http.StatusOK, report)
+}

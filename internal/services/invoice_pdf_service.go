@@ -35,7 +35,8 @@ func FetchInvoicePDFData(ctx context.Context,
 			c.name,
 			COALESCE(c.invoice_footer, ''),
 			COALESCE(i.tds_rate, 0),
-			COALESCE(i.tds_amount, 0)
+			COALESCE(i.tds_amount, 0),
+			COALESCE(i.doc_type, '')
 		FROM invoices i
 		JOIN companies c ON c.id = i.company_id
 		WHERE i.id = $1
@@ -54,6 +55,7 @@ func FetchInvoicePDFData(ctx context.Context,
 		&data.Invoice.Footer,
 		&data.Invoice.TDSRate,
 		&data.Invoice.TDSAmount,
+		&data.Invoice.DocType,
 	)
 
 	if err != nil {

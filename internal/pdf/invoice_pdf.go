@@ -491,14 +491,16 @@ func (g *TallyInvoiceGenerator) drawFooter(y float64) float64 {
 
 	// Declaration
 	y2 := y + h + 2
+	footerText := g.data.Invoice.Footer
+	if footerText == "" {
+		footerText = "Declaration: We declare that this invoice shows the actual price of the goods " +
+			"described and that all particulars are true and correct. " +
+			"Goods once sold will not be taken back."
+	}
 	pdf.SetFont("Helvetica", "I", 6.5)
 	pdf.SetTextColor(110, 110, 110)
 	pdf.SetXY(marginL+2, y2)
-	pdf.MultiCell(pageW-4, 3.5,
-		"Declaration: We declare that this invoice shows the actual price of the goods "+
-			"described and that all particulars are true and correct. "+
-			"Goods once sold will not be taken back.",
-		"", "L", false)
+	pdf.MultiCell(pageW-4, 3.5, footerText, "", "L", false)
 	pdf.SetTextColor(0, 0, 0)
 
 	return y2 + 8

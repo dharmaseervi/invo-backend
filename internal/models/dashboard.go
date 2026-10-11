@@ -3,10 +3,23 @@
 package models
 
 type DashboardResponse struct {
-	Period  string          `json:"period"`
-	Revenue RevenueBlock    `json:"revenue"`
-	Counts  CountBlock      `json:"counts"`
-	Recent  []RecentInvoice `json:"recent_invoices"`
+	Period      string            `json:"period"`
+	Revenue     RevenueBlock      `json:"revenue"`
+	Counts      CountBlock        `json:"counts"`
+	Receivables ReceivablesBlock  `json:"receivables"`
+	Payables    PayablesBlock     `json:"payables"`
+	Recent      []RecentInvoice   `json:"recent_invoices"`
+}
+
+type ReceivablesBlock struct {
+	Total   float64 `json:"total"`
+	Overdue float64 `json:"overdue"`
+	Count   int     `json:"count"`
+}
+
+type PayablesBlock struct {
+	Total float64 `json:"total"`
+	Count int     `json:"count"`
 }
 
 type RevenueBlock struct {

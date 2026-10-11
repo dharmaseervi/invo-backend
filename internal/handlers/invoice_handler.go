@@ -205,6 +205,15 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		return
 	}
 
+	// 4b️⃣ Fetch company invoice prefix
+	var invoicePrefix string
+	_ = h.db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT COALESCE(invoice_prefix,'INV') FROM companies WHERE id = $1`, req.CompanyID,
+	).Scan(&invoicePrefix)
+	if invoicePrefix == "" {
+		invoicePrefix = "INV"
+	}
+
 	// 5️⃣ Begin transaction
 	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
@@ -237,7 +246,7 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		return
 	}
 
-	invoiceNumber := fmt.Sprintf("INV/%s/%04d", fy, nextNumber)
+	invoiceNumber := fmt.Sprintf("%s/%s/%04d", invoicePrefix, fy, nextNumber)
 
 	// 7️⃣ Insert invoice
 	var invoiceID int
@@ -256,11 +265,12 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 			total,
 			tds_rate,
 			tds_amount,
+			doc_type,
 			status,
 			paid_amount,
 			remaining_amount
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'draft',0,$10)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',0,$10)
 		RETURNING id
 	`,
 		req.CompanyID,
@@ -275,6 +285,7 @@ func (h *InvoiceHandler) CreateInvoice(c *gin.Context) {
 		grandTotal,
 		req.TDSRate,
 		grandTotal*req.TDSRate/100,
+		req.DocType,
 	).Scan(&invoiceID)
 
 	if err != nil {
@@ -710,7 +721,8 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			-- were never sent, and cancelled invoices, which are void.
 			CASE WHEN i.status IN ('issued', 'partial') THEN GREATEST(0, CURRENT_DATE - i.due_date) ELSE 0 END AS days_overdue,
 			(CURRENT_DATE > i.due_date AND i.status IN ('issued', 'partial')) AS is_overdue,
-			COALESCE(c.name, '')
+			COALESCE(c.name, ''),
+			COALESCE(c.phone, '')
 		FROM invoices i
 		JOIN clients c ON c.id = i.client_id
 		WHERE i.company_id IN (SELECT company_id FROM companies_for_user($1))
@@ -785,6 +797,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			daysOverdue             int
 			isOverdue               bool
 			clientName              string
+			clientPhone             string
 		)
 
 		if err := rows.Scan(
@@ -804,6 +817,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			&daysOverdue,
 			&isOverdue,
 			&clientName,
+			&clientPhone,
 		); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "Failed to scan invoice",
@@ -816,6 +830,7 @@ func (h *InvoiceHandler) GetInvoices(c *gin.Context) {
 			"company_id":       companyID,
 			"client_id":        clientID,
 			"client_name":      clientName,
+			"client_phone":     clientPhone,
 			"invoice_number":   invoiceNumber,
 			"invoice_date":     invoiceDate.Format("2006-01-02"),
 			"due_date":         dueDate.Format("2006-01-02"),
@@ -847,6 +862,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		id, companyID, clientID int
 		invoiceNumber, status   string
 		clientName, clientPhone string
+		docType                 string
 		invoiceDate, dueDate    time.Time
 		createdAt               time.Time
 		tdsRate, tdsAmount      float64
@@ -878,6 +894,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 			COALESCE(c.phone, ''),
 			COALESCE(i.tds_rate, 0),
 			COALESCE(i.tds_amount, 0),
+			COALESCE(i.doc_type, ''),
 			-- Overdue means owed and late: issued or part-paid only, the rule the
 			-- overdue push check already uses. "Not paid" also caught drafts, which
 			-- were never sent, and cancelled invoices, which are void.
@@ -905,6 +922,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		&clientPhone,
 		&tdsRate,
 		&tdsAmount,
+		&docType,
 		&daysOverdue,
 		&isOverdue,
 	)
@@ -1002,6 +1020,7 @@ func (h *InvoiceHandler) GetInvoiceByID(c *gin.Context) {
 		"days_overdue":     daysOverdue,
 		"tds_rate":   tdsRate,
 		"tds_amount": tdsAmount,
+		"doc_type":   docType,
 		"client": gin.H{
 			"id":    clientID,
 			"name":  clientName,
@@ -1052,9 +1071,16 @@ func (h *InvoiceHandler) GetInvoiceNumberPreview(c *gin.Context) {
 		next = 1
 	}
 
+	var previewPrefix string
+	_ = h.db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT COALESCE(invoice_prefix,'INV') FROM companies WHERE id = $1`, companyID,
+	).Scan(&previewPrefix)
+	if previewPrefix == "" {
+		previewPrefix = "INV"
+	}
 	// Must match the format CreateInvoice actually issues, or the number the user is
 	// shown before saving is not the number that ends up on the invoice.
-	preview := fmt.Sprintf("INV/%s/%04d", fy, next)
+	preview := fmt.Sprintf("%s/%s/%04d", previewPrefix, fy, next)
 
 	c.JSON(200, gin.H{
 		"preview": preview,
@@ -1637,4 +1663,250 @@ func (h *InvoiceHandler) CancelInvoice(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Invoice cancelled"})
+}
+
+// POST /api/v1/invoices/:id/duplicate
+// Creates a new draft invoice copying items, client and dates from the source.
+func (h *InvoiceHandler) DuplicateInvoice(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	sourceID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid id"})
+		return
+	}
+
+	// Fetch source invoice header
+	var (
+		companyID, clientID int
+		discount, tdsRate   float64
+		docType             string
+	)
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT company_id, client_id, COALESCE(discount,0), COALESCE(tds_rate,0), COALESCE(doc_type,'')
+		 FROM invoices
+		 WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))`,
+		sourceID, userID).Scan(&companyID, &clientID, &discount, &tdsRate, &docType)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invoice not found"})
+		return
+	}
+
+	// Fetch source items
+	type srcItem struct{ itemID, qty int; rate, itemDiscount, taxRate float64 }
+	itemRows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`SELECT item_id, qty, rate, discount, tax_rate FROM invoice_items WHERE invoice_id = $1`, sourceID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch items"})
+		return
+	}
+	defer itemRows.Close()
+	var srcItems []srcItem
+	for itemRows.Next() {
+		var it srcItem
+		if err := itemRows.Scan(&it.itemID, &it.qty, &it.rate, &it.itemDiscount, &it.taxRate); err != nil {
+			continue
+		}
+		srcItems = append(srcItems, it)
+	}
+
+	// Build a request DTO and delegate to the existing create path via internal helper
+	today := time.Now()
+	dueDate := today.AddDate(0, 0, 7)
+
+	var invoicePrefix string
+	_ = h.db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT COALESCE(invoice_prefix,'INV') FROM companies WHERE id = $1`, companyID,
+	).Scan(&invoicePrefix)
+	if invoicePrefix == "" {
+		invoicePrefix = "INV"
+	}
+
+	fy := utils.FinancialYear(today)
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	var nextNumber int
+	err = tx.QueryRowContext(c.Request.Context(),
+		`INSERT INTO invoice_counters (company_id, financial_year)
+		 VALUES ($1, $2)
+		 ON CONFLICT (company_id, financial_year)
+		 DO UPDATE SET next_number = invoice_counters.next_number + 1
+		 RETURNING next_number`,
+		companyID, fy).Scan(&nextNumber)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate invoice number"})
+		return
+	}
+	invoiceNumber := fmt.Sprintf("%s/%s/%04d", invoicePrefix, fy, nextNumber)
+
+	// Recompute totals from copied items
+	var subtotal, taxTotal, grandTotal float64
+	for _, it := range srcItems {
+		base := it.rate * float64(it.qty)
+		afterDisc := base - it.itemDiscount
+		if afterDisc < 0 { afterDisc = 0 }
+		tax := afterDisc * it.taxRate / 100
+		subtotal += afterDisc
+		taxTotal += tax
+	}
+	grandTotal = subtotal + taxTotal - discount
+
+	var newID int
+	err = tx.QueryRowContext(c.Request.Context(),
+		`INSERT INTO invoices (company_id, user_id, client_id, invoice_number, invoice_date, due_date,
+		  subtotal, tax, discount, total, tds_rate, tds_amount, doc_type, status, paid_amount, remaining_amount)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',0,$10) RETURNING id`,
+		companyID, userID, clientID, invoiceNumber,
+		today.Format("2006-01-02"), dueDate.Format("2006-01-02"),
+		subtotal, taxTotal, discount, grandTotal,
+		tdsRate, grandTotal*tdsRate/100, docType,
+	).Scan(&newID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to duplicate invoice"})
+		return
+	}
+
+	for _, it := range srcItems {
+		base := it.rate * float64(it.qty)
+		afterDisc := base - it.itemDiscount
+		if afterDisc < 0 { afterDisc = 0 }
+		tax := afterDisc * it.taxRate / 100
+		lineTotal := afterDisc + tax
+		_, err = tx.ExecContext(c.Request.Context(),
+			`INSERT INTO invoice_items (invoice_id, item_id, qty, rate, discount, tax_rate, total)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+			newID, it.itemID, it.qty, it.rate, it.itemDiscount, it.taxRate, lineTotal)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to copy items"})
+			return
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save duplicate"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"invoice_id":     newID,
+		"invoice_number": invoiceNumber,
+	})
+}
+
+// POST /api/v1/invoices/:id/share — generate (or return existing) share token
+func (h *InvoiceHandler) GenerateShareLink(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	invoiceID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid id"})
+		return
+	}
+
+	var token string
+	err = h.db.DB.QueryRowContext(c.Request.Context(),
+		`UPDATE invoices
+		 SET share_token = COALESCE(share_token, encode(gen_random_bytes(16), 'hex'))
+		 WHERE id = $1 AND company_id IN (SELECT company_id FROM companies_for_user($2))
+		 RETURNING share_token`,
+		invoiceID, userID).Scan(&token)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invoice not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
+// GET /api/v1/public/invoices/:token — no auth, returns invoice data for public view
+func (h *InvoiceHandler) GetPublicInvoice(c *gin.Context) {
+	token := c.Param("token")
+
+	var (
+		id, companyID, clientID             int
+		invoiceNumber, status, docType      string
+		invoiceDate, dueDate                string
+		subtotal, tax, discount, total      float64
+		paidAmount, remaining               float64
+		tdsRate, tdsAmount                  float64
+		companyName, companyAddress         string
+		companyPhone, companyGst            string
+		clientName, clientPhone             string
+	)
+	err := h.db.DB.QueryRowContext(c.Request.Context(),
+		`SELECT i.id, i.company_id, i.client_id,
+		        i.invoice_number, i.status, COALESCE(i.doc_type,''),
+		        TO_CHAR(i.invoice_date,'YYYY-MM-DD'), TO_CHAR(i.due_date,'YYYY-MM-DD'),
+		        i.subtotal, i.tax, COALESCE(i.discount,0), i.total,
+		        i.paid_amount, i.remaining_amount,
+		        COALESCE(i.tds_rate,0), COALESCE(i.tds_amount,0),
+		        co.name, COALESCE(co.address,''), COALESCE(co.phone,''), COALESCE(co.gst,''),
+		        cl.name, COALESCE(cl.phone,'')
+		 FROM invoices i
+		 JOIN companies co ON co.id = i.company_id
+		 JOIN clients cl ON cl.id = i.client_id
+		 WHERE i.share_token = $1 AND i.status NOT IN ('draft','cancelled')`,
+		token).Scan(
+		&id, &companyID, &clientID,
+		&invoiceNumber, &status, &docType,
+		&invoiceDate, &dueDate,
+		&subtotal, &tax, &discount, &total,
+		&paidAmount, &remaining,
+		&tdsRate, &tdsAmount,
+		&companyName, &companyAddress, &companyPhone, &companyGst,
+		&clientName, &clientPhone,
+	)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invoice not found or not shareable"})
+		return
+	}
+
+	// Fetch line items
+	itemRows, err := h.db.DB.QueryContext(c.Request.Context(),
+		`SELECT ii.id, it.name, ii.qty, ii.rate, ii.discount, ii.tax_rate, ii.total
+		 FROM invoice_items ii JOIN items it ON it.id = ii.item_id
+		 WHERE ii.invoice_id = $1 ORDER BY ii.id`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch items"})
+		return
+	}
+	defer itemRows.Close()
+	items := []gin.H{}
+	for itemRows.Next() {
+		var rowID, qty int
+		var name string
+		var rate, itemDisc, taxRate, lineTotal float64
+		if err := itemRows.Scan(&rowID, &name, &qty, &rate, &itemDisc, &taxRate, &lineTotal); err != nil {
+			continue
+		}
+		items = append(items, gin.H{
+			"id": rowID, "name": name, "qty": qty,
+			"rate": rate, "discount": itemDisc, "tax_rate": taxRate, "total": lineTotal,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"invoice_number": invoiceNumber,
+		"status":         status,
+		"doc_type":       docType,
+		"invoice_date":   invoiceDate,
+		"due_date":       dueDate,
+		"subtotal":       subtotal,
+		"tax":            tax,
+		"discount":       discount,
+		"total":          total,
+		"paid_amount":    paidAmount,
+		"remaining":      remaining,
+		"tds_rate":       tdsRate,
+		"tds_amount":     tdsAmount,
+		"company": gin.H{
+			"name": companyName, "address": companyAddress,
+			"phone": companyPhone, "gst": companyGst,
+		},
+		"client": gin.H{"name": clientName, "phone": clientPhone},
+		"items":  items,
+	})
 }

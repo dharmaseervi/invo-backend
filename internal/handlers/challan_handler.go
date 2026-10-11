@@ -152,7 +152,7 @@ func (h *ChallanHandler) GetChallanByID(c *gin.Context) {
 	var invoiceID *int64
 	err = h.db.DB.QueryRowContext(c.Request.Context(),
 		`SELECT dc.id, dc.challan_number, TO_CHAR(dc.challan_date,'YYYY-MM-DD'), dc.status,
-		        dc.notes, dc.client_id, cl.name, dc.invoice_id
+		        COALESCE(dc.notes,''), dc.client_id, cl.name, dc.invoice_id
 		 FROM delivery_challans dc
 		 JOIN clients cl ON cl.id = dc.client_id
 		 WHERE dc.id = $1 AND dc.company_id IN (SELECT company_id FROM companies_for_user($2))`,
@@ -164,7 +164,7 @@ func (h *ChallanHandler) GetChallanByID(c *gin.Context) {
 	}
 
 	itemRows, err := h.db.DB.QueryContext(c.Request.Context(),
-		`SELECT dci.id, dci.item_id, it.name, dci.qty, dci.description
+		`SELECT dci.id, dci.item_id, it.name, dci.qty, COALESCE(dci.description,'')
 		 FROM delivery_challan_items dci
 		 JOIN items it ON it.id = dci.item_id
 		 WHERE dci.challan_id = $1 ORDER BY dci.id`,

@@ -72,6 +72,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 	public.Use(middleware.RateLimiter())
 	{
 		public.POST("/register", authHandler.Register)
+		public.GET("/public/invoices/:token", invoiceHandler.GetPublicInvoice)
 	}
 
 	// Anything that accepts a password or a one-time code is limited per account as
@@ -171,6 +172,8 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.PUT("/invoices/:id/update", invoiceHandler.UpdateInvoice) // 👈 REQUIRED
 		protected.DELETE("/invoices/:id", invoiceHandler.DeleteInvoice)
 		protected.POST("/invoices/:id/cancel", invoiceHandler.CancelInvoice)
+		protected.POST("/invoices/:id/duplicate", invoiceHandler.DuplicateInvoice)
+		protected.POST("/invoices/:id/share", invoiceHandler.GenerateShareLink)
 
 
 		// GSTIN offline lookup — validates format and returns state name
@@ -238,6 +241,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// Stock going back to a supplier.
 		protected.POST("/purchase-returns", purchaseHandler.RecordReturn)
 		protected.GET("/purchase-returns", purchaseHandler.GetReturns)
+		protected.GET("/purchase-returns/:id/pdf", purchaseHandler.GetDebitNotePDF)
 		protected.GET("/suppliers/:id/ledger", purchaseHandler.SupplierLedger)
 		protected.GET("/suppliers/:id/ledger/summary", purchaseHandler.SupplierLedgerSummary)
 		protected.GET("/suppliers/:id/ledger/statement.pdf", purchaseHandler.GetSupplierStatementPDF)
@@ -273,6 +277,7 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		// GST reports
 		protected.GET("/companies/:companyId/reports/gstr1", gstReportHandler.GetGSTReport)
 		protected.GET("/companies/:companyId/reports/aging", agingReportHandler.GetAgingReport)
+		protected.GET("/companies/:companyId/reports/supplier-aging", agingReportHandler.GetSupplierAgingReport)
 		protected.GET("/companies/:companyId/reports/stock", stockReportHandler.GetStockReport)
 		protected.GET("/companies/:companyId/reports/profit-loss", profitLossHandler.GetProfitLoss)
 

@@ -96,7 +96,34 @@ func (h *DashboardHandler) GetDashboard(c *gin.Context) {
 		`, companyID, userID).Scan(&resp.Counts.Items)
 	})
 
-	// 4️⃣ Recent invoices
+	// 4️⃣ Receivables — what clients still owe
+	g.Go(func() error {
+		return h.db.DB.QueryRowContext(ctx, `
+			SELECT COALESCE(SUM(remaining_amount),0), COUNT(*)
+			FROM invoices
+			WHERE company_id = $1 AND status IN ('issued','partial')
+		`, companyID).Scan(&resp.Receivables.Total, &resp.Receivables.Count)
+	})
+
+	g.Go(func() error {
+		return h.db.DB.QueryRowContext(ctx, `
+			SELECT COALESCE(SUM(remaining_amount),0)
+			FROM invoices
+			WHERE company_id = $1 AND status IN ('issued','partial')
+			  AND due_date < CURRENT_DATE
+		`, companyID).Scan(&resp.Receivables.Overdue)
+	})
+
+	// 5️⃣ Payables — what we owe suppliers
+	g.Go(func() error {
+		return h.db.DB.QueryRowContext(ctx, `
+			SELECT COALESCE(SUM(remaining_amount),0), COUNT(*)
+			FROM purchase_bills
+			WHERE company_id = $1 AND status IN ('unpaid','partial')
+		`, companyID).Scan(&resp.Payables.Total, &resp.Payables.Count)
+	})
+
+	// 6️⃣ Recent invoices
 	g.Go(func() error {
 		rows, err := h.db.DB.QueryContext(ctx, `
 			SELECT

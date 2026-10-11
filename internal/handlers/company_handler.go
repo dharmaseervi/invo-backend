@@ -109,6 +109,7 @@ func (h *CompanyHandler) GetMyCompanies(c *gin.Context) {
 		`
         SELECT c.id, c.user_id, c.name, c.address, c.phone, c.gst, c.city, c.state, c.pincode,
                COALESCE(c.invoice_footer, ''),
+               COALESCE(c.invoice_prefix, 'INV'),
                COALESCE(m.role, CASE WHEN c.user_id = $1 THEN 'owner' ELSE '' END)
         FROM companies c
         LEFT JOIN company_members m ON m.company_id = c.id AND m.user_id = $1
@@ -137,6 +138,7 @@ func (h *CompanyHandler) GetMyCompanies(c *gin.Context) {
 			&company.State,
 			&company.Pincode,
 			&company.InvoiceFooter,
+			&company.InvoicePrefix,
 			&company.Role,
 		); err != nil {
 			c.JSON(500, gin.H{"error": "Scan error"})
@@ -179,8 +181,9 @@ func (h *CompanyHandler) UpdateCompany(c *gin.Context) {
 		`
 		UPDATE companies
 		SET name = $1, address = $2, phone = $3, gst = $4,
-		    city = $5, state = $6, pincode = $7, invoice_footer = $8
-		WHERE id = $9 AND user_id = $10
+		    city = $5, state = $6, pincode = $7, invoice_footer = $8,
+		    invoice_prefix = CASE WHEN $9 = '' THEN 'INV' ELSE $9 END
+		WHERE id = $10 AND user_id = $11
 	`,
 		strings.TrimSpace(request.Name),
 		request.Address,
@@ -190,6 +193,7 @@ func (h *CompanyHandler) UpdateCompany(c *gin.Context) {
 		request.State,
 		request.Pincode,
 		request.InvoiceFooter,
+		strings.TrimSpace(request.InvoicePrefix),
 		companyID,
 		userID,
 	)

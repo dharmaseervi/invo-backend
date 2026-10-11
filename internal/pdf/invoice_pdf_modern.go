@@ -334,13 +334,15 @@ func (g *ModernInvoiceGenerator) drawFooter(y float64) float64 {
 	pdf.SetTextColor(0, 0, 0)
 
 	y2 := y + 32
+	footerText := g.data.Invoice.Footer
+	if footerText == "" {
+		footerText = "Declaration: We declare that this invoice shows the actual price of the goods " +
+			"described and that all particulars are true and correct. Goods once sold will not be taken back."
+	}
 	pdf.SetFont("Helvetica", "I", 6.5)
 	pdf.SetTextColor(140, 140, 140)
 	pdf.SetXY(marginL, y2)
-	pdf.MultiCell(pageW, 3.5,
-		"Declaration: We declare that this invoice shows the actual price of the goods "+
-			"described and that all particulars are true and correct. Goods once sold will not be taken back.",
-		"", "L", false)
+	pdf.MultiCell(pageW, 3.5, footerText, "", "L", false)
 	pdf.SetTextColor(0, 0, 0)
 
 	return y2 + 8

@@ -749,3 +749,134 @@ func (h *PurchaseHandler) GetSupplierStatementPDF(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	c.Data(http.StatusOK, "application/pdf", pdfBytes)
 }
+
+// GetDebitNotePDF renders a purchase return as a debit note PDF.
+//
+// GET /api/v1/purchase-returns/:id/pdf?company_id=1
+func (h *PurchaseHandler) GetDebitNotePDF(c *gin.Context) {
+	returnID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid return id"})
+		return
+	}
+	companyID, ok := h.company(c)
+	if !ok {
+		return
+	}
+
+	// Return header
+	var (
+		supplierID   int64
+		returnNumber, returnDate, reason string
+		billNumber   string
+		subtotal, tax, total float64
+	)
+	err = h.db.QueryRowContext(c.Request.Context(), `
+		SELECT r.supplier_id, r.return_number,
+		       TO_CHAR(r.return_date, 'DD-MM-YYYY'),
+		       COALESCE(r.reason, ''),
+		       COALESCE(b.bill_number, ''),
+		       r.subtotal, r.tax, r.total
+		FROM purchase_returns r
+		LEFT JOIN purchase_bills b ON b.id = r.bill_id
+		WHERE r.id = $1 AND r.company_id = $2
+	`, returnID, companyID).Scan(
+		&supplierID, &returnNumber, &returnDate, &reason,
+		&billNumber, &subtotal, &tax, &total,
+	)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Return not found"})
+		return
+	}
+
+	// Supplier
+	var (
+		supplierName, supplierGSTIN, supplierPhone string
+		supplierLine1, supplierCity, supplierState  string
+	)
+	_ = h.db.QueryRowContext(c.Request.Context(), `
+		SELECT name, COALESCE(gstin,''), COALESCE(phone,''),
+		       COALESCE(address,''), COALESCE(city,''), COALESCE(state,'')
+		FROM suppliers WHERE id = $1
+	`, supplierID).Scan(
+		&supplierName, &supplierGSTIN, &supplierPhone,
+		&supplierLine1, &supplierCity, &supplierState,
+	)
+
+	// Company
+	var (
+		companyName, companyPhone, companyGSTIN string
+		addrLine1, addrCity, addrState, addrZip  string
+	)
+	_ = h.db.QueryRowContext(c.Request.Context(), `
+		SELECT c.name, COALESCE(c.phone,''), COALESCE(c.gst_number,''),
+		       COALESCE(a.address_line1,''), COALESCE(a.city,''),
+		       COALESCE(a.state,''), COALESCE(a.pincode,'')
+		FROM companies c
+		LEFT JOIN company_addresses a ON a.company_id = c.id AND a.is_default = TRUE
+		WHERE c.id = $1
+	`, companyID).Scan(
+		&companyName, &companyPhone, &companyGSTIN,
+		&addrLine1, &addrCity, &addrState, &addrZip,
+	)
+
+	// Items
+	rows, err := h.db.QueryContext(c.Request.Context(), `
+		SELECT COALESCE(i.name, ''), ri.qty, ri.rate, ri.tax_rate, ri.total
+		FROM purchase_return_items ri
+		LEFT JOIN items i ON i.id = ri.item_id
+		WHERE ri.return_id = $1
+		ORDER BY ri.id
+	`, returnID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch items"})
+		return
+	}
+	defer rows.Close()
+
+	var items []pdf.DebitNoteItem
+	for rows.Next() {
+		var it pdf.DebitNoteItem
+		if err := rows.Scan(&it.Name, &it.Qty, &it.Rate, &it.TaxRate, &it.Total); err != nil {
+			continue
+		}
+		items = append(items, it)
+	}
+
+	data := pdf.DebitNoteData{
+		Company:      pdf.Company{Name: companyName, Phone: companyPhone},
+		CompanyGSTIN: companyGSTIN,
+		CompanyAddr:  pdf.Address{Line1: addrLine1, City: addrCity, State: addrState, Zip: addrZip},
+		Supplier: pdf.DebitNoteParty{
+			Name:  supplierName,
+			GSTIN: supplierGSTIN,
+			Phone: supplierPhone,
+			Line1: supplierLine1,
+			City:  supplierCity,
+			State: supplierState,
+		},
+		Return: pdf.DebitNoteReturn{
+			ReturnNumber: returnNumber,
+			ReturnDate:   returnDate,
+			BillNumber:   billNumber,
+			Subtotal:     subtotal,
+			Tax:          tax,
+			Total:        total,
+			Reason:       reason,
+		},
+		Items: items,
+	}
+
+	pdfBytes, err := pdf.GenerateDebitNotePDF(data)
+	if err != nil {
+		log.Println("failed to render debit note pdf:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate PDF"})
+		return
+	}
+
+	fileName := fmt.Sprintf("DebitNote_%s.pdf", safeFileName(returnNumber))
+	c.Header("Content-Disposition", `attachment; filename="`+fileName+`"`)
+	c.Header("Content-Type", "application/pdf")
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "application/pdf", pdfBytes)
+}

@@ -11,6 +11,7 @@ type Expensess struct {
 	// How it was paid. Empty where nobody said, which is not the same as cash — the
 	// cash drawer only counts an expense it was told came out of the till.
 	PaymentMethod string `json:"payment_method"`
+	Category      string `json:"category"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
 }

@@ -5,6 +5,7 @@ import (
 	"invo-server/internal/models"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -64,11 +65,11 @@ func (h *expenseHandler) CreateExpense(c *gin.Context) {
 	var expenseID int
 	err := h.db.DB.QueryRowContext(c.Request.Context(),
 		`
-        INSERT INTO expensess (name, amount, description, date, company_id, user_id, payment_method) 
-        VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''))
+        INSERT INTO expensess (name, amount, description, date, company_id, user_id, payment_method, category)
+        VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''))
         RETURNING id
     `, request.Name, request.Amount, request.Description, request.Date, request.CompanyID, userID,
-		request.PaymentMethod).Scan(&expenseID)
+		request.PaymentMethod, request.Category).Scan(&expenseID)
 
 	if err != nil {
 		log.Println("failed to create expense:", err)
@@ -104,18 +105,48 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
 		return
 	}
 
-	// Fetch expenses. Paged when the caller asks; the whole list otherwise, so the
-	// apps already in the store keep working. id breaks ties between expenses recorded
-	// on the same date, without which a row could land on two pages or on none.
+	// Fetch expenses. Supports optional search, date range and category filters.
+	// Paged when the caller asks; the whole list otherwise, so apps already in the
+	// store keep working. id breaks ties between expenses recorded on the same date,
+	// without which a row could land on two pages or on none.
+	search := c.Query("search")
+	from := c.Query("from")
+	to := c.Query("to")
+	category := c.Query("category")
+
 	query := `
-        SELECT id, name, amount, description, date, COALESCE(payment_method, ''), created_at, updated_at
+        SELECT id, name, amount, description, date, COALESCE(payment_method, ''), COALESCE(category, ''), created_at, updated_at
         FROM expensess
         WHERE company_id=$1
-        ORDER BY date DESC, id DESC
     `
 	args := []interface{}{companyID}
+	argPos := 2
+
+	if search != "" {
+		query += ` AND name ILIKE $` + strconv.Itoa(argPos)
+		args = append(args, "%"+search+"%")
+		argPos++
+	}
+	if from != "" {
+		query += ` AND date >= $` + strconv.Itoa(argPos)
+		args = append(args, from)
+		argPos++
+	}
+	if to != "" {
+		query += ` AND date <= $` + strconv.Itoa(argPos)
+		args = append(args, to)
+		argPos++
+	}
+	if category != "" {
+		query += ` AND category = $` + strconv.Itoa(argPos)
+		args = append(args, category)
+		argPos++
+	}
+
+	query += ` ORDER BY date DESC, id DESC`
+
 	if limit := clampPageSize(mustAtoi(c.Query("limit")), 0); limit > 0 {
-		query += " LIMIT $2 OFFSET $3"
+		query += ` LIMIT $` + strconv.Itoa(argPos) + ` OFFSET $` + strconv.Itoa(argPos+1)
 		args = append(args, limit, mustAtoi(c.Query("offset")))
 	}
 
@@ -140,6 +171,7 @@ func (h *expenseHandler) GetExpenses(c *gin.Context) {
 			&exp.Description,
 			&exp.Date,
 			&exp.PaymentMethod,
+			&exp.Category,
 			&exp.CreatedAt,
 			&exp.UpdatedAt,
 		)
@@ -169,7 +201,7 @@ func (h *expenseHandler) GetExpenseByID(c *gin.Context) {
 	// Fetch expense and verify ownership
 	err := h.db.DB.QueryRowContext(c.Request.Context(),
 		`
-        SELECT id, name, amount, description, date, company_id, COALESCE(payment_method, ''), created_at, updated_at
+        SELECT id, name, amount, description, date, company_id, COALESCE(payment_method, ''), COALESCE(category, ''), created_at, updated_at
         FROM expensess
         WHERE id=$1
     `, expenseID).Scan(
@@ -180,6 +212,7 @@ func (h *expenseHandler) GetExpenseByID(c *gin.Context) {
 		&exp.Date,
 		&companyID,
 		&exp.PaymentMethod,
+		&exp.Category,
 		&exp.CreatedAt,
 		&exp.UpdatedAt,
 	)
@@ -220,8 +253,9 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 		Amount      float64 `json:"amount"`
 		Description string  `json:"description"`
 		Date        string  `json:"date"`
-		// Omitted keeps the existing method; an explicit empty string clears it.
+		// Omitted keeps the existing value; an explicit empty string clears it.
 		PaymentMethod *string `json:"payment_method"`
+		Category      *string `json:"category"`
 	}
 
 	if err := c.ShouldBindJSON(&request); err != nil {
@@ -273,6 +307,7 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 			description = COALESCE($3, description),
 			date = COALESCE($4, date),
 			payment_method = CASE WHEN $5::text IS NULL THEN payment_method ELSE NULLIF($5, '') END,
+			category      = CASE WHEN $7::text IS NULL THEN category      ELSE NULLIF($7, '') END,
 			updated_at = NOW()
 		WHERE id = $6
 	`,
@@ -282,6 +317,7 @@ func (h *expenseHandler) UpdateExpense(c *gin.Context) {
 		request.Date,
 		request.PaymentMethod,
 		expenseID,
+		request.Category,
 	)
 
 	if err != nil {
@@ -372,7 +408,7 @@ func (h *expenseHandler) GetExpensesByDateRange(c *gin.Context) {
 	// Fetch expenses in date range
 	rows, err := h.db.DB.QueryContext(c.Request.Context(),
 		`
-        SELECT id, name, amount, description, date, COALESCE(payment_method, ''), created_at, updated_at
+        SELECT id, name, amount, description, date, COALESCE(payment_method, ''), COALESCE(category, ''), created_at, updated_at
         FROM expensess
         WHERE company_id=$1 AND date BETWEEN $2 AND $3
         ORDER BY date DESC
@@ -396,6 +432,7 @@ func (h *expenseHandler) GetExpensesByDateRange(c *gin.Context) {
 			&exp.Description,
 			&exp.Date,
 			&exp.PaymentMethod,
+			&exp.Category,
 			&exp.CreatedAt,
 			&exp.UpdatedAt,
 		)

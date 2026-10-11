@@ -1,0 +1,1 @@
+ALTER TABLE expensess DROP COLUMN IF EXISTS category;
