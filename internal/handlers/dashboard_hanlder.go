@@ -128,15 +128,15 @@ func (h *DashboardHandler) GetDashboard(c *gin.Context) {
 		rows, err := h.db.DB.QueryContext(ctx, `
 			SELECT
 				i.id,
-				i.invoice_number,
-				c.name,
-				i.total,
+				COALESCE(i.invoice_number, ''),
+				COALESCE(c.name, ''),
+				COALESCE(i.total, 0),
 				i.status,
-				i.created_at
+				COALESCE(TO_CHAR(i.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), '')
 			FROM invoices i
-			JOIN clients c ON c.id = i.client_id
+			LEFT JOIN clients c ON c.id = i.client_id
 			WHERE i.company_id = $1
-			ORDER BY i.created_at DESC
+			ORDER BY i.created_at DESC NULLS LAST, i.id DESC
 			LIMIT 5
 		`, companyID)
 		if err != nil {
@@ -164,6 +164,7 @@ func (h *DashboardHandler) GetDashboard(c *gin.Context) {
 	})
 
 	if err := g.Wait(); err != nil {
+		log.Printf("dashboard company=%d: %v", companyIDInt, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load dashboard"})
 		return
 	}
