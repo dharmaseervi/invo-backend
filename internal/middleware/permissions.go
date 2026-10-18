@@ -18,9 +18,8 @@ import (
 // answerable by reading something, and a permission that is enforced in fifteen places
 // is a permission that is eventually missed in one of them.
 //
-// Anything not named in routePermissions needs membership of the company and nothing
-// more. The sensitive routes are named, and a named route whose company cannot be
-// worked out is refused rather than allowed.
+// Every registered route has a permission or an explicit reviewed exemption.
+// Missing policies and unresolved companies fail closed.
 
 // Role is what somebody is to a business.
 type Role string
@@ -118,6 +117,13 @@ func RoleCapabilities(role Role) map[string]bool {
 // route that is not in this table is checked against the router at startup, so a
 // sensitive route cannot be added and quietly left ungoverned.
 var routePermissions = map[string]Permission{
+	"GET /api/v1/companies/:companyId/reports/supplier-aging": PermSeeCosts,
+	"GET /api/v1/purchase-returns/:id/pdf":                    PermSeeCosts,
+	"POST /api/v1/challans":                                   PermBillCustomers,
+	"GET /api/v1/challans":                                    PermBillCustomers,
+	"GET /api/v1/challans/:id":                                PermBillCustomers,
+	"PATCH /api/v1/challans/:id/dispatch":                     PermBillCustomers,
+	"POST /api/v1/invoices/:id/share":                         PermBillCustomers,
 	// Deleting things that were recorded.
 	"DELETE /api/v1/invoices/:id":          PermDelete,
 	"POST /api/v1/invoices/:id/cancel":     PermDelete,
@@ -135,20 +141,20 @@ var routePermissions = map[string]Permission{
 	"POST /api/v1/categories":           PermEditCatalogue,
 
 	// What the shop pays, and who it owes.
-	"POST /api/v1/suppliers":                            PermSeeCosts,
-	"GET /api/v1/suppliers":                             PermSeeCosts,
-	"PUT /api/v1/suppliers/:id":                         PermSeeCosts,
-	"POST /api/v1/purchase-bills":                       PermSeeCosts,
-	"GET /api/v1/purchase-bills":                        PermSeeCosts,
-	"GET /api/v1/purchase-bills/:id":                    PermSeeCosts,
-	"POST /api/v1/purchase-bills/:id/cancel":            PermSeeCosts,
-	"POST /api/v1/supplier-payments":                    PermSeeCosts,
-	"POST /api/v1/purchase-returns":                     PermSeeCosts,
-	"GET /api/v1/purchase-returns":                      PermSeeCosts,
-	"GET /api/v1/suppliers/:id/ledger":                  PermSeeCosts,
-	"GET /api/v1/suppliers/:id/ledger/summary":          PermSeeCosts,
-	"GET /api/v1/suppliers/:id/ledger/statement.pdf":    PermSeeCosts,
-	"GET /api/v1/item/:itemId/movements":       PermSeeCosts,
+	"POST /api/v1/suppliers":                         PermSeeCosts,
+	"GET /api/v1/suppliers":                          PermSeeCosts,
+	"PUT /api/v1/suppliers/:id":                      PermSeeCosts,
+	"POST /api/v1/purchase-bills":                    PermSeeCosts,
+	"GET /api/v1/purchase-bills":                     PermSeeCosts,
+	"GET /api/v1/purchase-bills/:id":                 PermSeeCosts,
+	"POST /api/v1/purchase-bills/:id/cancel":         PermSeeCosts,
+	"POST /api/v1/supplier-payments":                 PermSeeCosts,
+	"POST /api/v1/purchase-returns":                  PermSeeCosts,
+	"GET /api/v1/purchase-returns":                   PermSeeCosts,
+	"GET /api/v1/suppliers/:id/ledger":               PermSeeCosts,
+	"GET /api/v1/suppliers/:id/ledger/summary":       PermSeeCosts,
+	"GET /api/v1/suppliers/:id/ledger/statement.pdf": PermSeeCosts,
+	"GET /api/v1/item/:itemId/movements":             PermSeeCosts,
 
 	// Closing the day. Counting the floor corrects stock and shows what everything
 	// cost; counting the drawer is the day's takings. Neither is a counter job.
@@ -173,16 +179,16 @@ var routePermissions = map[string]Permission{
 	// refused the expense list could still read any one expense by id and change its
 	// amount. Recording one was open too. What the shop spends is one subject, and
 	// every route that touches it needs the same answer.
-	"POST /api/v1/expenses":                          PermSeeReports,
-	"GET /api/v1/expenses/:id":                       PermSeeReports,
-	"PUT /api/v1/expenses/:id":                       PermSeeReports,
-	"GET /api/v1/invoices/summary":                   PermSeeReports,
-	"GET /api/v1/companies/:companyId/payments":      PermSeeReports,
-	"GET /api/v1/dashboard":                          PermSeeReports,
-	"GET /api/v1/companies/:companyId/reports/gstr1": PermSeeReports,
-	"GET /api/v1/companies/:companyId/reports/aging": PermSeeReports,
-	"GET /api/v1/companies/:companyId/reports/stock":        PermSeeReports,
-	"GET /api/v1/companies/:companyId/reports/profit-loss":  PermSeeReports,
+	"POST /api/v1/expenses":                                PermSeeReports,
+	"GET /api/v1/expenses/:id":                             PermSeeReports,
+	"PUT /api/v1/expenses/:id":                             PermSeeReports,
+	"GET /api/v1/invoices/summary":                         PermSeeReports,
+	"GET /api/v1/companies/:companyId/payments":            PermSeeReports,
+	"GET /api/v1/dashboard":                                PermSeeReports,
+	"GET /api/v1/companies/:companyId/reports/gstr1":       PermSeeReports,
+	"GET /api/v1/companies/:companyId/reports/aging":       PermSeeReports,
+	"GET /api/v1/companies/:companyId/reports/stock":       PermSeeReports,
+	"GET /api/v1/companies/:companyId/reports/profit-loss": PermSeeReports,
 
 	// The shop's own settings. Reading the bank list is left to any member: an
 	// invoice prints those details, and somebody writing one may need to pick which
@@ -198,6 +204,99 @@ var routePermissions = map[string]Permission{
 	"POST /api/v1/companies/:companyId/staff":             PermManageStaff,
 	"PUT /api/v1/companies/:companyId/staff/:memberId":    PermManageStaff,
 	"DELETE /api/v1/companies/:companyId/staff/:memberId": PermManageStaff,
+}
+
+// RouteExemptions explicitly documents endpoints that do not require an extra
+// role permission. Missing entries are denied, including future routes. Public
+// endpoints are inventoried for coverage but do not run Permissions.
+var routeExemptions = map[string]string{
+	"POST /api/v1/payments":                               "Handler enforces current-user ownership or company membership.",
+	"GET /api/v1/invoices":                                "Handler enforces current-user ownership or company membership.",
+	"POST /api/v1/invoices":                               "Handler enforces current-user ownership or company membership.",
+	"GET /api/v1/companies":                               "Handler enforces current-user ownership or company membership.",
+	"POST /api/v1/companies":                              "Handler enforces current-user ownership or company membership.",
+	"GET /health":                                         "Public liveness probe; no business data.",
+	"POST /api/v1/register":                               "Public credential or token-link endpoint; handler verifies its credential.",
+	"GET /api/v1/public/invoices/:token":                  "Public credential or token-link endpoint; handler verifies its credential.",
+	"POST /api/v1/login":                                  "Public credential or token-link endpoint; handler verifies its credential.",
+	"POST /api/v1/forgot-password":                        "Public credential or token-link endpoint; handler verifies its credential.",
+	"POST /api/v1/reset-password":                         "Public credential or token-link endpoint; handler verifies its credential.",
+	"POST /api/v1/auth/token/refresh":                     "Public credential or token-link endpoint; handler verifies its credential.",
+	"POST /api/v1/refresh-token":                          "Account-scoped; authentication and handler authorize the current user.",
+	"POST /api/v1/logout":                                 "Account-scoped; authentication and handler authorize the current user.",
+	"GET /api/v1/auth/sessions":                           "Account-scoped; authentication and handler authorize the current user.",
+	"DELETE /api/v1/auth/sessions":                        "Account-scoped; authentication and handler authorize the current user.",
+	"DELETE /api/v1/auth/sessions/:id":                    "Account-scoped; authentication and handler authorize the current user.",
+	"GET /api/v1/profile":                                 "Account-scoped; authentication and handler authorize the current user.",
+	"POST /api/v1/device-tokens":                          "Account-scoped; authentication and handler authorize the current user.",
+	"DELETE /api/v1/device-tokens":                        "Account-scoped; authentication and handler authorize the current user.",
+	"POST /api/v1/push/test":                              "Account-scoped; authentication and handler authorize the current user.",
+	"GET /api/v1/companies/:companyId/address":            "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/clients":                                "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/companies/:companyId/clients":            "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/companies/:companyId/quick-sale-client": "Available to every company member; handler enforces record/company ownership.",
+	"PUT /api/v1/clients/:clientId":                       "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/clients/:clientId/address":               "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/clients/:clientId/address":              "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/clients/:clientId/invoices":              "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/items/:companyId/all":                    "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/item/:itemId/one":                        "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/items/:companyId/barcode/:barcode":       "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/categories/:companyId":                   "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/invoices/:id":                            "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/invoices/number-preview":                 "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/clients/:clientId/unpaid-invoices":       "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/invoices/:id/issue":                     "Available to every company member; handler enforces record/company ownership.",
+	"PUT /api/v1/invoices/:id/update":                     "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/invoices/:id/duplicate":                 "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/gstin/:gstin":                            "Offline format lookup; no company records or external requests.",
+	"POST /api/v1/estimates":                              "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/estimates":                               "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/estimates/number-preview":                "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/estimates/:id":                           "Available to every company member; handler enforces record/company ownership.",
+	"PUT /api/v1/estimates/:id/update":                    "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/estimates/:id/status":                   "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/estimates/:id/convert":                  "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/estimates/:id/pdf":                       "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/invoices/:id/pdf":                        "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/refunds":                                "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/refunds":                                 "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/credit-notes":                           "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/credit-notes":                            "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/credit-notes/summary":                    "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/credit-notes/:id":                        "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/credit-notes/:id/apply":                 "Available to every company member; handler enforces record/company ownership.",
+	"GET /api/v1/companies/:companyId/banks":              "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/invoices/:id/send-email":                "Available to every company member; handler enforces record/company ownership.",
+	"POST /api/v1/send-otp":                               "Public credential or token-link endpoint; handler verifies its credential.",
+	"POST /api/v1/verify-otp":                             "Public credential or token-link endpoint; handler verifies its credential.",
+	"POST /api/v1/verify-email":                           "Public credential or token-link endpoint; handler verifies its credential.",
+	"POST /api/v1/resend-verification":                    "Public credential or token-link endpoint; handler verifies its credential.",
+	"DELETE /api/v1/account":                              "Account-scoped; authentication and handler authorize the current user.",
+
+	// Public static web routes — no business data, no authentication required.
+	"GET /":                      "Public static web root.",
+	"GET /api/v1/health":         "Public liveness probe; no business data.",
+	"GET /app":                   "Public static web app shell.",
+	"GET /app/*filepath":         "Public static web app assets.",
+	"HEAD /app":                  "Public static web app shell.",
+	"HEAD /app/*filepath":        "Public static web app assets.",
+	"GET /privacy":               "Public static page; no business data.",
+	"GET /terms":                 "Public static page; no business data.",
+	"GET /screenshots/*filepath": "Public static screenshots; no business data.",
+	"HEAD /screenshots/*filepath": "Public static screenshots; no business data.",
+}
+
+func RouteExemption(method, pattern string) (string, bool) {
+	reason, ok := routeExemptions[method+" "+pattern]
+	return reason, ok
+}
+func ReviewedRoutes() []string {
+	out := GovernedRoutes()
+	for route := range routeExemptions {
+		out = append(out, route)
+	}
+	return out
 }
 
 // RequiredPermission returns what a route needs, and whether it needs anything at all.
@@ -222,12 +321,17 @@ func GovernedRoutes() []string {
 // request concerns, reads that person's role in it, and refuses anything their role
 // does not carry.
 //
-// A route the table does not name passes straight through — the handler's own
-// membership check still applies, as it always did.
+// An explicitly exempted route uses its handler's ownership check. Unreviewed routes
+// are refused, so adding a route cannot silently bypass the policy.
 func Permissions(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		perm, governed := RequiredPermission(c.Request.Method, c.FullPath())
 		if !governed {
+			if _, reviewed := RouteExemption(c.Request.Method, c.FullPath()); !reviewed {
+				c.JSON(http.StatusForbidden, gin.H{"error": "This route is not authorized"})
+				c.Abort()
+				return
+			}
 			c.Next()
 			return
 		}
@@ -289,6 +393,10 @@ var recordCompany = map[string]struct {
 	query string
 }{
 	"/api/v1/companies/:companyId/banks/:bankId": {"bankId", `SELECT company_id FROM company_bank_accounts WHERE id = $1`},
+	"/api/v1/challans/:id":                       {"id", `SELECT company_id FROM delivery_challans WHERE id=$1`},
+	"/api/v1/challans/:id/dispatch":              {"id", `SELECT company_id FROM delivery_challans WHERE id=$1`},
+	"/api/v1/purchase-returns/:id/pdf":           {"id", `SELECT company_id FROM purchase_returns WHERE id=$1`},
+	"/api/v1/invoices/:id/share":                 {"id", `SELECT company_id FROM invoices WHERE id=$1`},
 	"/api/v1/invoices/:id":                       {"id", `SELECT company_id FROM invoices WHERE id = $1`},
 	"/api/v1/invoices/:id/cancel":                {"id", `SELECT company_id FROM invoices WHERE id = $1`},
 	"/api/v1/expenses/:id":                       {"id", `SELECT company_id FROM expensess WHERE id = $1`},
@@ -301,12 +409,12 @@ var recordCompany = map[string]struct {
 	"/api/v1/items/:itemId":                      {"itemId", `SELECT company_id FROM items WHERE id = $1`},
 	"/api/v1/item/:itemId/restock":               {"itemId", `SELECT company_id FROM items WHERE id = $1`},
 	"/api/v1/item/:itemId/movements":             {"itemId", `SELECT company_id FROM items WHERE id = $1`},
-	"/api/v1/purchase-bills/:id":                    {"id", `SELECT company_id FROM purchase_bills WHERE id = $1`},
-	"/api/v1/purchase-bills/:id/cancel":            {"id", `SELECT company_id FROM purchase_bills WHERE id = $1`},
-	"/api/v1/suppliers/:id":                        {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
-	"/api/v1/suppliers/:id/ledger":                 {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
-	"/api/v1/suppliers/:id/ledger/summary":         {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
-	"/api/v1/suppliers/:id/ledger/statement.pdf":   {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/purchase-bills/:id":                 {"id", `SELECT company_id FROM purchase_bills WHERE id = $1`},
+	"/api/v1/purchase-bills/:id/cancel":          {"id", `SELECT company_id FROM purchase_bills WHERE id = $1`},
+	"/api/v1/suppliers/:id":                      {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/suppliers/:id/ledger":               {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/suppliers/:id/ledger/summary":       {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
+	"/api/v1/suppliers/:id/ledger/statement.pdf": {"id", `SELECT company_id FROM suppliers WHERE id = $1`},
 }
 
 // companyForRequest works out which business a request concerns, and refuses to answer
