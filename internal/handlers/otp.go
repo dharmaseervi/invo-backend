@@ -11,7 +11,6 @@ import (
 	"invo-server/internal/services"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 type OTPHandler struct {
@@ -153,38 +152,12 @@ func (h *OTPHandler) VerifyOTP(c *gin.Context) {
 		return
 	}
 
-	// Generate JWT — same as your existing Login handler
-	now := time.Now()
-	claims := jwt.MapClaims{
-		"user_id": userID,
-		"email":   email,
-		"iat":     now.Unix(),
-		"exp":     now.Add(24 * time.Hour).Unix(),
-		"sv": sessionVersion(c.Request.Context(),
-			h.db.DB, int64(userID)),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(h.jwtSecret)
+	resp, err := issueSession(c, h.db.DB, userID, "Unknown device", "unknown", "", h.jwtSecret, 24*time.Hour)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token generation failed"})
+		c.JSON(500, gin.H{"error": "Failed to create session; please sign in again"})
 		return
 	}
-
-	// A browser signing in with a code gets the same httpOnly session a password login
-	// gets. Only the password handler set this, so the website could complete the OTP
-	// exchange, receive a token it deliberately throws away, and end up with no session
-	// at all — signed in as far as the server was concerned, signed out as far as the
-	// browser was. The phone apps carry the token in the Authorization header and are
-	// unaffected: the server prefers that header to the cookie.
-	setSessionCookie(c, tokenString, 24*time.Hour)
-
-	c.JSON(http.StatusOK, gin.H{
-		"user": gin.H{
-			"id":    userID,
-			"email": email,
-		},
-		"token":      tokenString,
-		"expires_in": 86400,
-		"token_type": "Bearer",
-	})
+	setSessionCookie(c, resp["token"].(string), 24*time.Hour)
+	resp["user"] = gin.H{"id": userID, "email": email}
+	c.JSON(200, resp)
 }

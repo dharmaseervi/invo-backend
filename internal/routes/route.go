@@ -175,7 +175,6 @@ func RegisterRoutes(r *gin.Engine, db *database.Database, cfg *config.Config) {
 		protected.POST("/invoices/:id/duplicate", invoiceHandler.DuplicateInvoice)
 		protected.POST("/invoices/:id/share", invoiceHandler.GenerateShareLink)
 
-
 		// GSTIN offline lookup — validates format and returns state name
 		protected.GET("/gstin/:gstin", handlers.LookupGSTIN)
 
@@ -321,16 +320,26 @@ func assertPermissionPolicyMatchesRoutes(r *gin.Engine) {
 	}
 
 	var missing []string
-	for _, governed := range middleware.GovernedRoutes() {
+	for _, governed := range middleware.ReviewedRoutes() {
 		if !registered[governed] {
 			missing = append(missing, governed)
 		}
 	}
 
+	for route := range registered {
+		parts := strings.SplitN(route, " ", 2)
+		if _, ok := middleware.RequiredPermission(parts[0], parts[1]); ok {
+			continue
+		}
+		if _, ok := middleware.RouteExemption(parts[0], parts[1]); ok {
+			continue
+		}
+		missing = append(missing, "unreviewed: "+route)
+	}
 	if len(missing) > 0 {
 		sort.Strings(missing)
 		log.Fatalf(
-			"permission policy names %d route(s) that do not exist: %s",
+			"permission policy has %d missing or unreviewed route(s): %s",
 			len(missing), strings.Join(missing, ", "),
 		)
 	}

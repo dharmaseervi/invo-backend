@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	database "invo-server/internal/db"
 	"invo-server/internal/models"
@@ -113,6 +115,33 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 	limit := clampPageSize(mustAtoi(c.DefaultQuery("limit", "50")), 50)
 	offset := mustAtoi(c.DefaultQuery("offset", "0"))
 
+	search := strings.TrimSpace(c.Query("search"))
+	method := strings.TrimSpace(c.Query("method"))
+	var clientFilter int64
+	if raw := c.Query("client_id"); raw != "" {
+		clientFilter, err = strconv.ParseInt(raw, 10, 64)
+		if err != nil || clientFilter <= 0 {
+			c.JSON(400, gin.H{"error": "Invalid client filter"})
+			return
+		}
+	}
+	start, end := c.Query("start"), c.Query("end")
+	for _, date := range []string{start, end} {
+		if date != "" {
+			if _, err := time.Parse(time.DateOnly, date); err != nil {
+				c.JSON(400, gin.H{"error": "Invalid date filter"})
+				return
+			}
+		}
+	}
+	if start != "" && end != "" && start > end {
+		c.JSON(400, gin.H{"error": "Start date must not follow end date"})
+		return
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
 	rows, err := h.db.DB.QueryContext(c.Request.Context(),
 		`
 		SELECT p.id, p.client_id, COALESCE(cl.name, ''), p.amount,
@@ -126,13 +155,19 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 		           WHERE pa.payment_id = p.id
 		       ), ''),
 		       COALESCE(p.status, 'recorded'), COALESCE(p.reversal_reason, ''),
-		       COALESCE(p.unapplied_amount, 0)
+		       COALESCE(p.unapplied_amount, 0), COALESCE(p.tds_amount,0)
 		FROM payments p
 		LEFT JOIN clients cl ON cl.id = p.client_id
 		WHERE p.company_id = $1
-		ORDER BY p.payment_date DESC, p.id DESC
+ AND ($4='' OR cl.name ILIKE '%' || $4 || '%' OR p.reference ILIKE '%' || $4 || '%'
+ OR p.notes ILIKE '%' || $4 || '%' OR EXISTS(SELECT 1 FROM payment_allocations pa JOIN invoices i ON i.id=pa.invoice_id WHERE pa.payment_id=p.id AND i.invoice_number ILIKE '%' || $4 || '%'))
+ AND ($5='' OR p.payment_method=$5)
+ AND ($6::bigint=0 OR p.client_id=$6)
+ AND (NULLIF($7,'')::date IS NULL OR p.payment_date>=NULLIF($7,'')::date)
+ AND (NULLIF($8,'')::date IS NULL OR p.payment_date<=NULLIF($8,'')::date)
+ ORDER BY p.payment_date DESC, p.id DESC
 		LIMIT $2 OFFSET $3
-	`, companyID, limit, offset)
+	`, companyID, limit, offset, search, method, clientFilter, start, end)
 	if err != nil {
 		log.Println("failed to fetch payments:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch payments"})
@@ -147,7 +182,7 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 			&p.ID, &p.ClientID, &p.ClientName, &p.Amount,
 			&p.PaymentMethod, &p.Reference, &p.Notes,
 			&p.PaymentDate, &p.CreatedAt, &p.AppliedTo,
-			&p.Status, &p.ReversalReason, &p.UnappliedAmount,
+			&p.Status, &p.ReversalReason, &p.UnappliedAmount, &p.TDSAmount,
 		); err != nil {
 			log.Println("failed to scan payment:", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch payments"})
@@ -167,6 +202,8 @@ func (h *PaymentHandler) GetPayments(c *gin.Context) {
 	if err := attachAllocations(c.Request.Context(),
 		h.db.DB, payments); err != nil {
 		log.Println("failed to fetch payment allocations:", err)
+		c.JSON(500, gin.H{"error": "Failed to load payment allocations"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"payments": payments})
@@ -184,7 +221,7 @@ func attachAllocations(ctx context.Context, db *sql.DB, payments []models.Paymen
 
 	rows, err := db.QueryContext(ctx,
 		`
-		SELECT pa.payment_id, pa.invoice_id, COALESCE(i.invoice_number, ''), pa.amount
+		SELECT pa.payment_id, pa.invoice_id, COALESCE(i.invoice_number, ''), pa.amount, pa.tds_amount
 		FROM payment_allocations pa
 		LEFT JOIN invoices i ON i.id = pa.invoice_id
 		WHERE pa.payment_id = ANY($1)
@@ -199,7 +236,7 @@ func attachAllocations(ctx context.Context, db *sql.DB, payments []models.Paymen
 	for rows.Next() {
 		var paymentID int64
 		var a models.PaymentAllocationRow
-		if err := rows.Scan(&paymentID, &a.InvoiceID, &a.InvoiceNumber, &a.Amount); err != nil {
+		if err := rows.Scan(&paymentID, &a.InvoiceID, &a.InvoiceNumber, &a.Amount, &a.TDSAmount); err != nil {
 			return err
 		}
 		byPayment[paymentID] = append(byPayment[paymentID], a)

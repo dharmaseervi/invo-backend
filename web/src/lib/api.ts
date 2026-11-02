@@ -40,7 +40,7 @@ export class ApiError extends Error {
 
 /// True when this build talks to an API on another origin, which only happens under
 /// `next dev`. NEXT_PUBLIC_API_ORIGIN is empty in the production build.
-const CROSS_ORIGIN_DEV = (process.env.NEXT_PUBLIC_API_ORIGIN ?? "") !== "";
+const CROSS_ORIGIN_DEV = process.env.NODE_ENV === "development" && (process.env.NEXT_PUBLIC_API_ORIGIN ?? "") !== "";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;

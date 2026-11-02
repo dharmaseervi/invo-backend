@@ -5,6 +5,10 @@ import (
 	"database/sql"
 	"invo-server/internal/models"
 	"invo-server/internal/money"
+	"math"
+	"sort"
+	"strings"
+	"time"
 )
 
 type PaymentService struct {
@@ -22,6 +26,30 @@ func (s *PaymentService) RecordPaymentTx(ctx context.Context,
 	clientID int64,
 	req models.PaymentRequestDTO,
 ) error {
+
+	if math.IsNaN(req.Amount) || math.IsInf(req.Amount, 0) || math.IsNaN(req.TDSAmount) || math.IsInf(req.TDSAmount, 0) || req.Amount < 0 || req.TDSAmount < 0 {
+		return PaymentInputError{"Enter valid received and withholding amounts."}
+	}
+	received, withheld := money.FromFloat(req.Amount), money.FromFloat(req.TDSAmount)
+	if !received.Add(withheld).GreaterThan(money.Zero()) {
+		return PaymentInputError{"Enter money received or tax actually withheld."}
+	}
+	switch req.PaymentMethod {
+	case "cash", "upi", "bank_transfer", "cheque":
+	default:
+		return PaymentInputError{"Choose a valid payment method."}
+	}
+	if req.PaymentDate != nil {
+		if _, err := time.Parse(time.DateOnly, *req.PaymentDate); err != nil {
+			return PaymentInputError{"Enter a valid payment date."}
+		}
+	}
+	if withheld.GreaterThan(money.Zero()) && len(req.Allocations) == 0 {
+		return PaymentInputError{"Allocate withholding to a specific invoice."}
+	}
+	req.Reference = strings.TrimSpace(req.Reference)
+	// Lock invoices in one consistent order for mixed-invoice settlements.
+	sort.Slice(req.Allocations, func(i, j int) bool { return req.Allocations[i].InvoiceID < req.Allocations[j].InvoiceID })
 
 	// 1️⃣ Auto-allocate if allocations not provided
 	if len(req.Allocations) == 0 {
@@ -42,17 +70,26 @@ func (s *PaymentService) RecordPaymentTx(ctx context.Context,
 	// Exact equality, in decimal. The old check tolerated a paisa either way because
 	// float64 sums drift — but that tolerance silently accepted a genuine one-paisa
 	// mismatch, leaving the payment and its allocations permanently out of balance.
-	allocated := money.Zero()
+	allocated, allocatedTDS := money.Zero(), money.Zero()
+	seen := map[int64]bool{}
 	for _, a := range req.Allocations {
+		if a.InvoiceID <= 0 || seen[a.InvoiceID] || math.IsNaN(a.Amount) || math.IsInf(a.Amount, 0) || a.Amount <= 0 || math.IsNaN(a.TDSAmount) || math.IsInf(a.TDSAmount, 0) || a.TDSAmount < 0 || money.FromFloat(a.TDSAmount).GreaterThan(money.FromFloat(a.Amount)) {
+			return PaymentInputError{"Each invoice needs one valid settlement with withholding no greater than its amount."}
+		}
+		seen[a.InvoiceID] = true
 		allocated = allocated.Add(money.FromFloat(a.Amount))
+		allocatedTDS = allocatedTDS.Add(money.FromFloat(a.TDSAmount))
+	}
+	if !allocatedTDS.Equal(withheld) {
+		return PaymentInputError{"Allocated withholding must equal the tax actually withheld."}
 	}
 
 	// Allocations may be less than the payment — the difference is the advance. More
 	// than the payment is always a mistake.
-	if allocated.GreaterThan(money.FromFloat(req.Amount)) {
+	if allocated.GreaterThan(received.Add(withheld)) {
 		return PaymentInputError{"That applies more to invoices than the payment is for."}
 	}
-	unapplied := money.FromFloat(req.Amount).Sub(allocated).Round()
+	unapplied := received.Add(withheld).Sub(allocated).Round()
 
 	// 3️⃣ Insert payment
 	var paymentID int64
@@ -66,9 +103,9 @@ func (s *PaymentService) RecordPaymentTx(ctx context.Context,
 			reference,
 			notes,
 			payment_date,
-			unapplied_amount
+			unapplied_amount, tds_amount
 		)
-		VALUES ($1,$2,$3,$4,$5,$6, COALESCE($7::date, CURRENT_DATE), $8)
+		VALUES ($1,$2,$3,$4,$5,$6, COALESCE($7::date, CURRENT_DATE), $8, $9)
 		RETURNING id
 	`,
 		companyID,
@@ -78,7 +115,7 @@ func (s *PaymentService) RecordPaymentTx(ctx context.Context,
 		req.Reference,
 		req.Notes,
 		req.PaymentDate,
-		unapplied.Float64(),
+		unapplied.Float64(), withheld.Float64(),
 	).Scan(&paymentID)
 
 	if err != nil {
@@ -122,9 +159,9 @@ func (s *PaymentService) RecordPaymentTx(ctx context.Context,
 		_, err = tx.ExecContext(ctx,
 			`
 			INSERT INTO payment_allocations
-				(payment_id, invoice_id, amount)
-			VALUES ($1,$2,$3)
-		`, paymentID, alloc.InvoiceID, alloc.Amount)
+				(payment_id, invoice_id, amount, tds_amount)
+			VALUES ($1,$2,$3,$4)
+		`, paymentID, alloc.InvoiceID, alloc.Amount, alloc.TDSAmount)
 
 		if err != nil {
 			return err
@@ -159,16 +196,15 @@ func (s *PaymentService) RecordPaymentTx(ctx context.Context,
 		narration = "Payment received (" + unapplied.String() + " on account)"
 	}
 
-	return s.ledger.AddEntryTx(ctx,
-		tx,
-		companyID,
-		clientID,
-		"PAYMENT",
-		paymentID,
-		0,
-		req.Amount,
-		narration,
-	)
+	if received.GreaterThan(money.Zero()) {
+		if err := s.ledger.AddEntryTx(ctx, tx, companyID, clientID, "PAYMENT", paymentID, 0, received.Float64(), narration); err != nil {
+			return err
+		}
+	}
+	if withheld.GreaterThan(money.Zero()) {
+		return s.ledger.AddEntryTx(ctx, tx, companyID, clientID, "ADJUSTMENT", paymentID, 0, withheld.Float64(), "TDS withheld — tax settlement, not money received")
+	}
+	return nil
 }
 
 // isPayableStatus reports whether an invoice can take a payment. A draft has not been

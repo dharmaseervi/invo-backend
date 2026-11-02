@@ -36,7 +36,7 @@ func (s *PaymentService) ReversePayment(ctx context.Context,
 	var status string
 	err = tx.QueryRowContext(ctx,
 		`
-		SELECT client_id, amount, status
+		SELECT client_id, amount + tds_amount, status
 		FROM payments
 		WHERE id = $1 AND company_id = $2
 		FOR UPDATE
@@ -97,15 +97,15 @@ func (s *PaymentService) ReallocatePayment(ctx context.Context,
 	defer tx.Rollback()
 
 	var clientID int64
-	var amount float64
+	var amount, tdsAmount float64
 	var status string
 	err = tx.QueryRowContext(ctx,
 		`
-		SELECT client_id, amount, status
+		SELECT client_id, amount, status, tds_amount
 		FROM payments
 		WHERE id = $1 AND company_id = $2
 		FOR UPDATE
-	`, paymentID, companyID).Scan(&clientID, &amount, &status)
+	`, paymentID, companyID).Scan(&clientID, &amount, &status, &tdsAmount)
 
 	if err == sql.ErrNoRows {
 		return PaymentInputError{"That payment isn't one of this company's."}
@@ -117,6 +117,9 @@ func (s *PaymentService) ReallocatePayment(ctx context.Context,
 		return PaymentInputError{"That payment was reversed, so there is nothing to move."}
 	}
 
+	if tdsAmount > 0 {
+		return PaymentInputError{"Reverse this withholding settlement and record it again to change its invoices."}
+	}
 	total := money.Zero()
 	for _, a := range allocations {
 		if a.Amount <= 0 {

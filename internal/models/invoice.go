@@ -16,7 +16,7 @@ type InvoiceRequestDTO struct {
 	InvoiceDate string               `json:"invoice_date"` // YYYY-MM-DD
 	DueDate     string               `json:"due_date"`
 	Notes       *string              `json:"notes"`
-	Discount    float64              `json:"discount"` // flat amount off the post-tax total
+	Discount    float64              `json:"discount"` // flat amount apportioned before tax
 	TDSRate     float64              `json:"tds_rate"` // TDS % deducted by buyer, e.g. 10
 	DocType     string               `json:"doc_type"` // "" = TAX INVOICE, "CREDIT INVOICE" etc.
 	Items       []InvoiceItemRequest `json:"items"`
@@ -48,6 +48,8 @@ type InvoiceSummary struct {
 }
 
 type UpdateInvoiceRequestDTO struct {
+	TDSRate     *float64             `json:"tds_rate"`
+	DocType     *string              `json:"doc_type"`
 	ClientID    int                  `json:"client_id"`
 	InvoiceDate string               `json:"invoice_date"`
 	DueDate     string               `json:"due_date"`

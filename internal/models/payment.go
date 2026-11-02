@@ -15,7 +15,8 @@ type Payment struct {
 }
 type PaymentRequestDTO struct {
 	ClientID      int64   `json:"client_id" binding:"required"`
-	Amount        float64 `json:"amount" binding:"required,gt=0"`
+	Amount        float64 `json:"amount" binding:"gte=0"`
+	TDSAmount     float64 `json:"tds_amount" binding:"gte=0"`
 	PaymentMethod string  `json:"payment_method" binding:"required"`
 	Reference     string  `json:"reference"`
 	Notes         string  `json:"notes"`
@@ -32,6 +33,7 @@ type PaymentRequestDTO struct {
 // PaymentHistoryRow is one entry in a company's payment history, with the invoices the
 // payment was applied to summarised inline.
 type PaymentHistoryRow struct {
+	TDSAmount     float64 `json:"tds_amount"`
 	ID            int64   `json:"id"`
 	ClientID      int64   `json:"client_id"`
 	ClientName    string  `json:"client_name"`
@@ -54,12 +56,14 @@ type PaymentHistoryRow struct {
 
 // PaymentAllocationRow is one invoice a payment was applied to.
 type PaymentAllocationRow struct {
+	TDSAmount     float64 `json:"tds_amount"`
 	InvoiceID     int64   `json:"invoice_id"`
 	InvoiceNumber string  `json:"invoice_number"`
 	Amount        float64 `json:"amount"`
 }
 
 type PaymentAllocationDTO struct {
+	TDSAmount float64 `json:"tds_amount" binding:"gte=0"`
 	InvoiceID int64   `json:"invoice_id" binding:"required"`
 	Amount    float64 `json:"amount" binding:"required,gt=0"`
 }

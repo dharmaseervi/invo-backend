@@ -61,11 +61,11 @@ func AuthMiddleware(jwtSecret []byte, db *sql.DB) gin.HandlerFunc {
 		// Parse and validate token
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 			// Validate signing method
-			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			if token.Method != jwt.SigningMethodHS256 {
 				return nil, jwt.ErrSignatureInvalid
 			}
 			return jwtSecret, nil
-		})
+		}, jwt.WithExpirationRequired())
 
 		if err != nil {
 			if err == jwt.ErrSignatureInvalid {
@@ -96,7 +96,7 @@ func AuthMiddleware(jwtSecret []byte, db *sql.DB) gin.HandlerFunc {
 
 		// Set user information in context
 		uidFloat, ok := claims["user_id"].(float64)
-		if !ok {
+		if !ok || uidFloat <= 0 || uidFloat != float64(int(uidFloat)) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user_id in token"})
 			c.Abort()
 			return
@@ -121,9 +121,13 @@ func AuthMiddleware(jwtSecret []byte, db *sql.DB) gin.HandlerFunc {
 
 		var validFrom time.Time
 		var currentVersion int
+		var legacyRevoked, activeSession bool
+		sid, _ := claims["sid"].(string)
 		switch err := db.QueryRowContext(c.Request.Context(),
-			`SELECT tokens_valid_from, session_version FROM users WHERE id = $1`, userID,
-		).Scan(&validFrom, &currentVersion); {
+			`SELECT u.tokens_valid_from, u.session_version, u.legacy_tokens_revoked,
+ EXISTS(SELECT 1 FROM sessions s WHERE s.id::text=$2 AND s.user_id=u.id AND s.session_version=u.session_version AND s.expires_at>NOW())
+ FROM users u WHERE u.id=$1`, userID, sid,
+		).Scan(&validFrom, &currentVersion, &legacyRevoked, &activeSession); {
 		case err == sql.ErrNoRows:
 			// The account was deleted while a token was still in circulation.
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
@@ -157,6 +161,13 @@ func AuthMiddleware(jwtSecret []byte, db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		if (sid != "" && !activeSession) || (sid == "" && legacyRevoked) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session ended, please sign in again"})
+			c.Abort()
+			return
+		}
+		c.Set("session_id", sid)
+		c.Set("session_version", currentVersion)
 		c.Next()
 	}
 }

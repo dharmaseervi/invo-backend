@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"math"
 
 	"invo-server/internal/models"
 	"invo-server/internal/money"
@@ -90,4 +91,17 @@ func computeInvoiceTotals(items []models.InvoiceItemRequest, invoiceDiscount flo
 
 	out.Total = out.Subtotal.Sub(out.Discount).Add(out.Tax).Round()
 	return out, nil
+}
+
+// Invoice deductions are estimates until an actual withholding settlement is recorded.
+// Keep the existing rate basis while rounding exactly like stored currency amounts.
+func computeInvoiceTDS(total money.Amount, rate float64) (money.Amount, error) {
+	if math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 || rate > 100 {
+		return money.Zero(), fmt.Errorf("TDS rate must be between 0 and 100")
+	}
+	return total.TaxAt(rate), nil
+}
+
+func validInvoiceDocumentType(value string) bool {
+	return value == "" || value == "TAX INVOICE" || value == "CREDIT INVOICE"
 }

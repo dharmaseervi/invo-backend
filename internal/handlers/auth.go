@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 )
 
 type AuthHandler struct {
@@ -196,44 +195,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	// Step 5 — Generate JWT
-	now := time.Now()
-	claims := jwt.MapClaims{
-		"user_id": user.ID,
-		"email":   user.Email,
-		"iat":     now.Unix(),
-		"exp":     now.Add(h.tokenExpiration).Unix(),
-		"sv": sessionVersion(c.Request.Context(),
-			h.db.DB, int64(user.ID)),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(h.jwtSecret)
+	resp, err := issueSession(c, h.db.DB, user.ID, login.DeviceName, login.Platform, user.PasswordHash, h.jwtSecret, h.tokenExpiration)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token generation failed"})
+		c.JSON(500, gin.H{"error": "Failed to create session; please sign in again"})
 		return
 	}
-
-	// Create a device session and issue a refresh token.
-	sessionID, refreshToken, sessErr := createSession(c, h.db.DB, user.ID, login.DeviceName, login.Platform)
-
-	setSessionCookie(c, tokenString, h.tokenExpiration)
-
-	resp := gin.H{
-		"user": gin.H{
-			"id":    user.ID,
-			"email": user.Email,
-		},
-		"token":      tokenString,
-		"expires_in": h.tokenExpiration.Seconds(),
-		"token_type": "Bearer",
-	}
-	if sessErr == nil {
-		resp["refresh_token"] = refreshToken
-		resp["session_id"] = sessionID
-	}
-
-	c.JSON(http.StatusOK, resp)
+	setSessionCookie(c, resp["token"].(string), h.tokenExpiration)
+	resp["user"] = gin.H{"id": user.ID, "email": user.Email}
+	c.JSON(200, resp)
 }
 
 // POST /api/v1/verify-email
@@ -276,42 +245,15 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 		`SELECT id FROM users WHERE lower(email) = $1`, req.Email,
 	).Scan(&userID)
 
-	// Generate JWT — now verified ✅
-	now := time.Now()
-	claims := jwt.MapClaims{
-		"user_id": userID,
-		"email":   req.Email,
-		"iat":     now.Unix(),
-		"exp":     now.Add(h.tokenExpiration).Unix(),
-		"sv": sessionVersion(c.Request.Context(),
-			h.db.DB, int64(userID)),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(h.jwtSecret)
+	resp, err := issueSession(c, h.db.DB, userID, "Unknown device", "unknown", "", h.jwtSecret, h.tokenExpiration)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token generation failed"})
+		c.JSON(500, gin.H{"error": "Failed to create session; please sign in again"})
 		return
 	}
-
-	// Verifying an address signs the person in, so the browser needs the cookie for it.
-	setSessionCookie(c, tokenString, h.tokenExpiration)
-
-	verifResp := gin.H{
-		"message": "Email verified successfully!",
-		"user": gin.H{
-			"id":    userID,
-			"email": req.Email,
-		},
-		"token":      tokenString,
-		"expires_in": h.tokenExpiration.Seconds(),
-		"token_type": "Bearer",
-	}
-	if sid, rt, err2 := createSession(c, h.db.DB, userID, "Unknown device", "ios"); err2 == nil {
-		verifResp["refresh_token"] = rt
-		verifResp["session_id"] = sid
-	}
-
-	c.JSON(http.StatusOK, verifResp)
+	setSessionCookie(c, resp["token"].(string), h.tokenExpiration)
+	resp["user"] = gin.H{"id": userID, "email": req.Email}
+	resp["message"] = "Email verified successfully!"
+	c.JSON(200, resp)
 }
 
 // POST /api/v1/resend-verification
@@ -368,76 +310,69 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 }
 
 // RefreshToken generates a new token for valid users
+// RefreshToken keeps the older cookie/client endpoint compatible. It rechecks
+// revocation under the same lock used by logout and never creates a replacement
+// for a session that was revoked after middleware authorized the request.
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
-	// Get user ID from context (set by auth middleware)
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
-
-	// The auth middleware rejects any token without an email claim, so omitting it here
-	// produced a refreshed token that could not call a single protected route.
-	email := c.GetString("email")
-	if email == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
-		return
-	}
-
-	// Generate new token
-	now := time.Now()
-	claims := jwt.MapClaims{
-		"user_id": userID,
-		"email":   email,
-		"iat":     now.Unix(),
-		"exp":     now.Add(h.tokenExpiration).Unix(),
-		"sv": sessionVersion(c.Request.Context(),
-			h.db.DB, int64(c.GetInt("user_id"))),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(h.jwtSecret)
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Token refresh failed"})
+		c.JSON(500, gin.H{"error": "Token refresh failed"})
 		return
 	}
-
-	// The refreshed token replaces the cookie too, or a browser would keep presenting
-	// the old one and get signed out at its original expiry however often it refreshed.
-	setSessionCookie(c, tokenString, h.tokenExpiration)
-
-	c.JSON(http.StatusOK, gin.H{
-		"token":      tokenString,
-		"expires_in": h.tokenExpiration.Seconds(),
-		"token_type": "Bearer",
-	})
+	defer tx.Rollback()
+	userID := c.GetInt("user_id")
+	var version int
+	var email string
+	err = tx.QueryRowContext(c.Request.Context(), `SELECT session_version,email FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&version, &email)
+	if err != nil || !requestSessionStillValid(c, tx, userID, version) {
+		c.JSON(401, gin.H{"error": "Session ended, please sign in again"})
+		return
+	}
+	var resp gin.H
+	if sid := c.GetString("session_id"); sid != "" {
+		var token string
+		token, err = signSessionToken(userID, version, email, sid, h.jwtSecret, h.tokenExpiration)
+		resp = gin.H{"token": token, "session_id": sid, "expires_in": h.tokenExpiration.Seconds(), "token_type": "Bearer"}
+	} else {
+		// Upgrade a still-valid pre-sid client at its next refresh.
+		resp, err = sessionCredentials(c, tx, userID, version, email, "Existing device", "unknown", h.jwtSecret, h.tokenExpiration)
+	}
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Token refresh failed"})
+		return
+	}
+	if err = tx.Commit(); err != nil {
+		c.JSON(500, gin.H{"error": "Token refresh failed"})
+		return
+	}
+	setSessionCookie(c, resp["token"].(string), h.tokenExpiration)
+	c.JSON(200, resp)
 }
 
-// Logout endpoint (optional - useful for client-side cleanup)
+// Logout preserves the established all-device logout behavior. Both access and
+// refresh credentials are invalidated atomically, including concurrent rotation.
 func (h *AuthHandler) Logout(c *gin.Context) {
-	// Dropping the token client-side is not enough: a copy taken from the device stays
-	// valid until it expires. Moving the cutoff forward refuses every token already
-	// issued to this user, so logging out actually ends the session.
-	if userID, exists := c.Get("user_id"); exists {
-		if _, err := h.db.DB.ExecContext(c.Request.Context(),
-			`UPDATE users SET tokens_valid_from = NOW(),
-			        session_version = session_version + 1
-			 WHERE id = $1`, userID,
-		); err != nil {
-			log.Println("failed to revoke tokens on logout:", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to log out"})
-			return
-		}
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to log out"})
+		return
 	}
-
-	// The cookie goes with the session it named. Without this the browser would keep
-	// sending a token the server has already refused, which works but reads as a bug
-	// the first time somebody looks at the requests.
+	defer tx.Rollback()
+	userID := c.GetInt("user_id")
+	_, err = tx.ExecContext(c.Request.Context(), `UPDATE users SET tokens_valid_from=NOW(),session_version=session_version+1,legacy_tokens_revoked=TRUE WHERE id=$1`, userID)
+	if err == nil {
+		_, err = tx.ExecContext(c.Request.Context(), `DELETE FROM sessions WHERE user_id=$1`, userID)
+	}
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to log out"})
+		return
+	}
+	if err = tx.Commit(); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to log out"})
+		return
+	}
 	clearSessionCookie(c)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Successfully logged out",
-	})
+	c.JSON(200, gin.H{"message": "Signed out of all devices"})
 }
 
 // DELETE /api/v1/account
@@ -637,60 +572,34 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	// Update password, and cut off every token issued before it. A password reset is
-	// how someone recovers a compromised account, so it has to boot any session the
-	// attacker still holds rather than leaving them signed in.
-	_, err = h.db.DB.ExecContext(c.Request.Context(),
-		`UPDATE users SET password_hash = $1, tokens_valid_from = NOW(),
-		        session_version = session_version + 1
-		 WHERE lower(email) = $2`,
-		hashedPassword, req.Email,
-	)
+	tx, err := h.db.DB.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
+		c.JSON(500, gin.H{"error": "Failed to update password"})
 		return
 	}
-
-	// The code was already consumed during verification, atomically.
-
-	// Generate JWT — log them in automatically
-	var userID int
-	h.db.DB.QueryRowContext(c.Request.Context(),
-		`SELECT id FROM users WHERE lower(email) = $1`, req.Email).Scan(&userID)
-
-	now := time.Now()
-	claims := jwt.MapClaims{
-		"user_id": userID,
-		"email":   req.Email,
-		"iat":     now.Unix(),
-		"exp":     now.Add(h.tokenExpiration).Unix(),
-		"sv": sessionVersion(c.Request.Context(),
-			h.db.DB, int64(userID)),
+	defer tx.Rollback()
+	var userID, version int
+	err = tx.QueryRowContext(c.Request.Context(), `UPDATE users SET password_hash=$1,tokens_valid_from=NOW(),session_version=session_version+1,legacy_tokens_revoked=TRUE WHERE lower(email)=$2 RETURNING id,session_version`, hashedPassword, req.Email).Scan(&userID, &version)
+	if err == nil {
+		_, err = tx.ExecContext(c.Request.Context(), `DELETE FROM sessions WHERE user_id=$1`, userID)
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(h.jwtSecret)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		c.JSON(500, gin.H{"error": "Failed to update password"})
 		return
 	}
-
-	// The new session has to reach the browser as a cookie, like a password login's
-	// does. This one matters more than the others: resetting a password revokes the
-	// existing session, so the cookie the browser was holding is already dead and
-	// cannot stand in for the new one. Without this a reset left the browser with no
-	// usable session and no way back except logging in again.
-	setSessionCookie(c, tokenString, h.tokenExpiration)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Password reset successfully",
-		"user": gin.H{
-			"id":    userID,
-			"email": req.Email,
-		},
-		"token":      tokenString,
-		"expires_in": h.tokenExpiration.Seconds(),
-		"token_type": "Bearer",
-	})
+	resp, err := sessionCredentials(c, tx, userID, version, req.Email, "Password reset", "unknown", h.jwtSecret, h.tokenExpiration)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create session"})
+		return
+	}
+	if err = tx.Commit(); err != nil {
+		c.JSON(500, gin.H{"error": "Failed to update password"})
+		return
+	}
+	setSessionCookie(c, resp["token"].(string), h.tokenExpiration)
+	resp["user"] = gin.H{"id": userID, "email": req.Email}
+	resp["message"] = "Password reset successfully"
+	c.JSON(200, resp)
 }
 
 // setSessionCookie gives the browser a session it cannot read from JavaScript.
